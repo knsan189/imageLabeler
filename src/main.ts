@@ -1,47 +1,42 @@
-import "dotenv/config";
-import { NextcloudSystemTagger } from "./NextcloudSystemTagger";
-import { NextcloudFolderWatcher } from "./NextcloudFolderWatcher";
+import app from "./app/app";
+import { VisionLabelsReq } from "./types";
 
-const BASE = (process.env.NC_DAV_BASE || "").replace(/\/+$/, "");
-const USER = process.env.NC_USERNAME || "";
-const PASS = process.env.NC_PASSWORD || "";
-const REMOTE_BASE = (process.env.NC_REMOTE_BASE || "photos/2025").replace(
-  /^\/+|\/+$/g,
-  ""
+app.post(
+  "/api/v1/vision/labels/:name/:version",
+  (req: VisionLabelsReq, res) => {
+    console.log("===== Vision Request =====");
+    console.log("Model:", req.params);
+    console.log("Headers:", req.headers);
+
+    const body = { ...req.body };
+
+    if (Array.isArray(body.images)) {
+      body.images = body.images.map((img, i) => {
+        if (typeof img === "string") {
+          return `data:image... (length=${img.length})`;
+        }
+        return img;
+      });
+    }
+
+    console.log("Body:", JSON.stringify(body, null, 2));
+    console.log("==========================");
+
+    // 일단 빈 라벨 반환 (PhotoPrism 에러 방지)
+    res.json({
+      id: req.body?.id ?? null,
+      model: {
+        name: req.params.name,
+        version: req.params.version,
+      },
+      result: { labels: [] },
+    });
+  }
 );
 
-async function main() {
-  const tagger = new NextcloudSystemTagger(BASE, USER, PASS, {
-    tagLimit: Number(process.env.TAG_LIMIT || 10),
+app.get("/health", (_req, res) => {
+  res.status(200).json({
+    status: "ok",
+    uptime: process.uptime(),
   });
-
-  const watcher = new NextcloudFolderWatcher(
-    BASE,
-    USER,
-    PASS,
-    REMOTE_BASE,
-    tagger,
-    {
-      pollMs: Number(process.env.POLL_MS || 8000),
-      stateFile: process.env.STATE_FILE || ".nc_watcher_state.json",
-      dryRun: String(process.env.DRY_RUN || "false").toLowerCase() === "true",
-    }
-  );
-
-  await watcher.start();
-
-  // 종료 신호 처리
-  process.on("SIGINT", () => {
-    watcher.stop();
-    process.exit(0);
-  });
-  process.on("SIGTERM", () => {
-    watcher.stop();
-    process.exit(0);
-  });
-}
-
-main().catch((e) => {
-  console.error("Fatal:", e);
-  process.exit(1);
 });
