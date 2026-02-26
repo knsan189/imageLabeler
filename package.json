@@ -1,0 +1,31 @@
+{
+  "name": "pngtagger",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "dev:watcher": "tsx watch src/main.ts",
+    "start": "tsx src/server.ts",
+    "watcher": "tsx src/main.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@types/express": "^5.0.6",
+    "@types/pngjs": "^6.0.5",
+    "axios": "^1.12.2",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "png-chunks-extract": "^1.0.0",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.0",
+    "@types/png-chunks-extract": "^1.0.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}
