@@ -1,4 +1,4 @@
-import app from "./app/app";
+import app from "./app/app.js";
 import { VisionLabelsReq } from "./types";
 
 app.post(

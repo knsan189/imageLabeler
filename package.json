@@ -2,12 +2,11 @@
   "name": "pngtagger",
   "version": "1.0.0",
   "main": "index.js",
+  "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "dev:watcher": "tsx watch src/main.ts",
-    "start": "tsx src/server.ts",
-    "watcher": "tsx src/main.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js"
   },
   "keywords": [],
   "author": "",
