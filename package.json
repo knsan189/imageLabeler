@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "build": "tsc",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "single": "tsx src/main.ts --file"
   },
   "keywords": [],
   "author": "",
@@ -15,7 +16,7 @@
   "dependencies": {
     "@types/express": "^5.0.6",
     "@types/pngjs": "^6.0.5",
-    "axios": "^1.12.2",
+    "axios": "^1.13.5",
     "chokidar": "^5.0.0",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
