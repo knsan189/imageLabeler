@@ -4,9 +4,11 @@ export class WorkerPool {
   private readonly queue: Task[] = [];
   private activeCount = 0;
   private readonly concurrency: number;
+  private readonly onError?: (error: unknown) => void;
 
-  constructor(concurrency: number) {
+  constructor(concurrency: number, onError?: (error: unknown) => void) {
     this.concurrency = Math.max(1, Math.floor(concurrency));
+    this.onError = onError;
   }
 
   enqueue(task: Task): void {
@@ -24,6 +26,10 @@ export class WorkerPool {
       void Promise.resolve()
         .then(task)
         .catch((error) => {
+          if (this.onError) {
+            this.onError(error);
+            return;
+          }
           console.error(error);
         })
         .finally(() => {
