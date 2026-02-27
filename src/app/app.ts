@@ -5,8 +5,12 @@ const app = express();
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true }));
-
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  const addr = (app as any).address?.() || undefined;
+  console.log(
+    `Server running on http://${addr?.address ?? "localhost"}:${
+      addr?.port ?? PORT
+    }`
+  );
 });
 export default app;
