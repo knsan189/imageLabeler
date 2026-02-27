@@ -11,7 +11,10 @@ import { PhotoPrismClient } from "./services/PhotoPrismClient.js";
 import { extractPrompt } from "./utils/extractPrompt.js";
 import { waitForStable } from "./utils/fileStability.js";
 import { errorToString, Logger } from "./utils/logger.js";
-import { parsePositivePromptLabels } from "./utils/promptLabels.js";
+import {
+  parseModelPromptLabel,
+  parsePositivePromptLabels,
+} from "./utils/promptLabels.js";
 import { WorkerPool } from "./utils/workerPool.js";
 
 class PngTaggerApp {
@@ -75,7 +78,14 @@ class PngTaggerApp {
       return;
     }
 
-    const labels = parsePositivePromptLabels(prompt);
+
+    const labels : string[] = [];
+    const positiveLabels = parsePositivePromptLabels(prompt);
+    labels.concat(positiveLabels);
+    const modelLabel = parseModelPromptLabel(prompt);
+    if (modelLabel) labels.push(modelLabel);
+
+
     if (!labels.length) {
       this.logger.warn("No labels parsed from prompt", { filePath });
       return;
