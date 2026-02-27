@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from "axios";
 import { sleep } from "../utils/sleep";
+import { errorToString, LoggerLike } from "../utils/logger";
 
 type WaitForUidOptions = {
   attempts?: number;
@@ -10,12 +11,11 @@ type PhotoItem = {
   UID?: string;
 };
 
-type FileItem = { PhotoUID?: string; UID?: string; FileName?: string; Path?: string };
-
 export class PhotoPrismClient {
   private readonly http: AxiosInstance;
+  private readonly logger?: LoggerLike;
 
-  constructor(baseUrl: string, token: string) {
+  constructor(baseUrl: string, token: string, logger?: LoggerLike) {
     this.http = axios.create({
       baseURL: baseUrl.replace(/\/+$/, ""),
       headers: {
@@ -23,9 +23,13 @@ export class PhotoPrismClient {
       },
       timeout: 30_000,
     });
+    this.logger = logger;
   }
 
-  async findPhotoUidByFilename(filename: string, relDir: string): Promise<string | null> {
+  async findPhotoUidByFilename(
+    filename: string,
+    relDir: string
+  ): Promise<string | null> {
     try {
       const q = `path:"${relDir}" name:"${filename}"`;
       const res = await this.http.get<PhotoItem[]>("/api/v1/photos", {
@@ -36,7 +40,11 @@ export class PhotoPrismClient {
       });
       return res.data?.[0]?.UID ?? null;
     } catch (error) {
-      console.error("Error finding photo UID by filename:", error);
+      this.logger?.warn("Photo UID lookup request failed", {
+        filename,
+        relDir,
+        error: errorToString(error),
+      });
       return null;
     }
   }
@@ -51,7 +59,13 @@ export class PhotoPrismClient {
 
     for (let i = 0; i < attempts; i += 1) {
       const uid = await this.findPhotoUidByFilename(filename, relDir);
-      console.log("UID response:", uid);
+      this.logger?.debug("Photo UID lookup result", {
+        filename,
+        relDir,
+        attempt: i + 1,
+        attempts,
+        uid,
+      });
       if (uid) return uid;
       await sleep(intervalMs);
     }
@@ -61,13 +75,17 @@ export class PhotoPrismClient {
 
   async addLabel(uid: string, label: string): Promise<void> {
     try {
-    await this.http.post(`/api/v1/photos/${uid}/label`, {
-      Name: label,
+      await this.http.post(`/api/v1/photos/${uid}/label`, {
+        Name: label,
         Priority: 0,
         Uncertainty: 0,
       });
     } catch (error) {
-      console.error("Error adding label:", error);
+      this.logger?.warn("Failed to add label", {
+        uid,
+        label,
+        error: errorToString(error),
+      });
     }
   }
 }

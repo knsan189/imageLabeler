@@ -10,15 +10,23 @@ import { appEnv } from "./config/env";
 import { PhotoPrismClient } from "./services/PhotoPrismClient";
 import { extractPrompt } from "./utils/extractPrompt";
 import { waitForStable } from "./utils/fileStability";
+import { errorToString, Logger } from "./utils/logger";
 import { parsePositivePromptLabels } from "./utils/promptLabels";
 import { WorkerPool } from "./utils/workerPool";
 
 class PngTaggerApp {
+  private readonly logger = new Logger("pngTagger", appEnv.logLevel);
   private readonly photoPrism = new PhotoPrismClient(
     appEnv.photoPrismUrl,
-    appEnv.photoPrismToken
+    appEnv.photoPrismToken,
+    this.logger.child("photoPrism")
   );
-  private readonly workerPool = new WorkerPool(appEnv.concurrency);
+  private readonly workerPool = new WorkerPool(
+    appEnv.concurrency,
+    (error) => {
+      this.logger.error("Worker task failed", { error: errorToString(error) });
+    }
+  );
 
   async run(): Promise<void> {
     const singleRunFilePath = this.resolveSingleRunFilePath();
@@ -27,9 +35,9 @@ class PngTaggerApp {
         throw new Error(`Unsupported file extension: ${singleRunFilePath}`);
       }
 
-      console.log("pngTagger single-run mode:", singleRunFilePath);
+      this.logger.info("Single-run mode started", { filePath: singleRunFilePath });
       await this.processFile(singleRunFilePath);
-      console.log("pngTagger single-run finished");
+      this.logger.info("Single-run mode finished");
       return;
     }
 
@@ -57,53 +65,48 @@ class PngTaggerApp {
   }
 
   private async processFile(filePath: string): Promise<void> {
-    console.log("Processing:", filePath);
+    this.logger.info("Processing file", { filePath });
 
     await waitForStable(filePath);
 
-    const prompt = await extractPrompt(filePath);
-
-
+    const prompt = await extractPrompt(filePath, { logger: this.logger });
     if (!prompt) {
-      console.log("No prompt found:", filePath);
+      this.logger.warn("No prompt found", { filePath });
       return;
     }
 
-    console.log("parsing prompt to labels");
     const labels = parsePositivePromptLabels(prompt);
-    console.log("parsed labels:", labels.length);
-
-
-
     if (!labels.length) {
-      console.log("No labels parsed:", filePath);
+      this.logger.warn("No labels parsed from prompt", { filePath });
       return;
     }
 
     const filename = path.basename(filePath);
-    const folderPath = path.relative(appEnv.originalsPath, filePath).replace(`/${filename}`, "");
-
-    console.log("looking up UID for:", filename, folderPath);
+    const folderPath = path
+      .relative(appEnv.originalsPath, filePath)
+      .replace(`/${filename}`, "");
+    this.logger.info("Resolving Photo UID", {
+      filename,
+      folderPath,
+      labels: labels.length,
+    });
 
     const uid = await this.photoPrism.waitForPhotoUidByFilename(filename, folderPath, {
       attempts: PHOTO_UID_LOOKUP_ATTEMPTS,
       intervalMs: PHOTO_UID_LOOKUP_INTERVAL_MS,
     });
 
-    console.log("UID found:", uid);
-
     if (!uid) {
-      console.log("UID not found:", filename);
+      this.logger.warn("Photo UID not found", { filename, folderPath });
       return;
     }
 
-    console.log("adding labels");
     for (const label of labels) {
       await this.photoPrism.addLabel(uid, label);
     }
 
     await this.photoPrism.addLabel(uid, appEnv.markerLabel);
-    console.log("Done:", filename);
+    this.logger.info("File processed", { filename, uid, labelsApplied: labels.length + 1 });
   }
 
   private startWatcher(): void {
@@ -112,11 +115,15 @@ class PngTaggerApp {
       this.workerPool.enqueue(() => this.processFile(filePath));
     });
 
-    console.log("pngTagger watcher started");
+    this.logger.info("Watcher started", {
+      originalsPath: appEnv.originalsPath,
+      concurrency: appEnv.concurrency,
+    });
   }
 }
 
 void new PngTaggerApp().run().catch((error) => {
-  console.error("pngTagger fatal error:", error);
+  const logger = new Logger("pngTagger", appEnv.logLevel);
+  logger.error("Fatal error", { error: errorToString(error) });
   process.exitCode = 1;
 });
