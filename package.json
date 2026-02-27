@@ -16,6 +16,7 @@
     "@types/express": "^5.0.6",
     "@types/pngjs": "^6.0.5",
     "axios": "^1.12.2",
+    "chokidar": "^5.0.0",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "png-chunks-extract": "^1.0.0",
