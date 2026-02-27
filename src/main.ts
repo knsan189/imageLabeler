@@ -105,7 +105,7 @@ class PngTaggerApp {
       await this.photoPrism.addLabel(uid, label);
     }
 
-    // await this.photoPrism.addLabel(uid, appEnv.markerLabel);
+    await this.photoPrism.addLabel(uid, appEnv.markerLabel, 10);
     this.logger.info("File processed", { filename, uid, labelsApplied: labels.length + 1 });
   }
 

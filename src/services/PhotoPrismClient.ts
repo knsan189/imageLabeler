@@ -73,11 +73,11 @@ export class PhotoPrismClient {
     return null;
   }
 
-  async addLabel(uid: string, label: string): Promise<void> {
+  async addLabel(uid: string, label: string, priority: number = 0): Promise<void> {
     try {
       await this.http.post(`/api/v1/photos/${uid}/label`, {
         Name: label,
-        Priority: 0,
+        Priority: priority,
         Uncertainty: 0,
       });
     } catch (error) {
