@@ -62,28 +62,42 @@ class PngTaggerApp {
     await waitForStable(filePath);
 
     const prompt = await extractPrompt(filePath);
+
+
     if (!prompt) {
       console.log("No prompt found:", filePath);
       return;
     }
 
+    console.log("parsing prompt to labels");
     const labels = parsePositivePromptLabels(prompt);
+    console.log("parsed labels:", labels.length);
+
+
+
     if (!labels.length) {
       console.log("No labels parsed:", filePath);
       return;
     }
 
     const filename = path.basename(filePath);
-    const uid = await this.photoPrism.waitForPhotoUidByFilename(filename, {
+    const folderPath = path.relative(appEnv.originalsPath, filePath).replace(`/${filename}`, "");
+
+    console.log("looking up UID for:", filename, folderPath);
+
+    const uid = await this.photoPrism.waitForPhotoUidByFilename(filename, folderPath, {
       attempts: PHOTO_UID_LOOKUP_ATTEMPTS,
       intervalMs: PHOTO_UID_LOOKUP_INTERVAL_MS,
     });
+
+    console.log("UID found:", uid);
 
     if (!uid) {
       console.log("UID not found:", filename);
       return;
     }
 
+    console.log("adding labels");
     for (const label of labels) {
       await this.photoPrism.addLabel(uid, label);
     }

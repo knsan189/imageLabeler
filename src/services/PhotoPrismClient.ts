@@ -10,6 +10,8 @@ type PhotoItem = {
   UID?: string;
 };
 
+type FileItem = { PhotoUID?: string; UID?: string; FileName?: string; Path?: string };
+
 export class PhotoPrismClient {
   private readonly http: AxiosInstance;
 
@@ -23,30 +25,33 @@ export class PhotoPrismClient {
     });
   }
 
-  async findPhotoUidByFilename(filename: string): Promise<string | null> {
+  async findPhotoUidByFilename(filename: string, relDir: string): Promise<string | null> {
     try {
+      const q = `path:"${relDir}" name:"${filename}"`;
       const res = await this.http.get<PhotoItem[]>("/api/v1/photos", {
         params: {
-          q: `filename:"${filename}"`,
+          q,
           count: 1,
         },
       });
-
       return res.data?.[0]?.UID ?? null;
-    } catch {
+    } catch (error) {
+      console.error("Error finding photo UID by filename:", error);
       return null;
     }
   }
 
   async waitForPhotoUidByFilename(
     filename: string,
+    relDir: string,
     options: WaitForUidOptions = {}
   ): Promise<string | null> {
     const attempts = options.attempts ?? 20;
     const intervalMs = options.intervalMs ?? 3_000;
 
     for (let i = 0; i < attempts; i += 1) {
-      const uid = await this.findPhotoUidByFilename(filename);
+      const uid = await this.findPhotoUidByFilename(filename, relDir);
+      console.log("UID response:", uid);
       if (uid) return uid;
       await sleep(intervalMs);
     }
@@ -55,10 +60,14 @@ export class PhotoPrismClient {
   }
 
   async addLabel(uid: string, label: string): Promise<void> {
+    try {
     await this.http.post(`/api/v1/photos/${uid}/label`, {
       Name: label,
-      Priority: 0,
-      Uncertainty: 0,
-    });
+        Priority: 0,
+        Uncertainty: 0,
+      });
+    } catch (error) {
+      console.error("Error adding label:", error);
+    }
   }
 }
