@@ -1,9 +1,5 @@
-// NextcloudSystemTagger.ts
 import axios, { AxiosInstance } from "axios";
-import { PNG } from "pngjs";
-import extractChunks from "png-chunks-extract";
-import zlib from "zlib";
-import { extractPngInfo, PngInfo } from "./PngInfo";
+import { extractPngInfo, PngInfo } from "./PngInfo.js";
 
 export type TaggerOptions = {
   tagLimit?: number;

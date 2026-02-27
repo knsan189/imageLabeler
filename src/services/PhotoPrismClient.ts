@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from "axios";
-import { sleep } from "../utils/sleep";
-import { errorToString, LoggerLike } from "../utils/logger";
+import { sleep } from "../utils/sleep.js";
+import { errorToString, LoggerLike } from "../utils/logger.js";
 
 type WaitForUidOptions = {
   attempts?: number;

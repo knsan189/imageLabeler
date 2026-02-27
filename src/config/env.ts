@@ -1,6 +1,6 @@
 import "dotenv/config";
-import { DEFAULT_CONCURRENCY, DEFAULT_MARKER_LABEL } from "./constants";
-import { LogLevel } from "../utils/logger";
+import { DEFAULT_CONCURRENCY, DEFAULT_MARKER_LABEL } from "./constants.js";
+import { LogLevel } from "../utils/logger.js";
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();

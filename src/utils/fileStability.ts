@@ -1,5 +1,5 @@
 import fs from "fs/promises";
-import { sleep } from "./sleep";
+import { sleep } from "./sleep.js";
 
 export type WaitForStableOptions = {
   timeoutMs?: number;

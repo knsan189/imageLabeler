@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'image-labeler',
-      script: './dist/main.js',
+      script: 'npm run start',
       // instances: 'max', // CPU 코어 수만큼 인스턴스 생성
       // exec_mode: 'cluster', // 클러스터 모드
 

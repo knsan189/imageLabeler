@@ -1,0 +1,8 @@
+2026-02-27T12:08:05: 
+2026-02-27T12:08:05: > image-labeler@1.0.0 start
+2026-02-27T12:08:05: > node dist/main.js
+2026-02-27T12:08:05: 
+2026-02-27T12:08:05: [2026-02-27 12:08:05] INFO  pngTagger | Watcher started {"originalsPath":"/hdd1/photoPrism_data","concurrency":5}
+2026-02-27T12:08:05: [2026-02-27 12:08:05] INFO  pngTagger | Processing file {"filePath":"/hdd1/photoPrism_data/temp/00000-2823861042.png"}
+2026-02-27T12:08:06: [2026-02-27 12:08:06] INFO  pngTagger | Resolving Photo UID {"filename":"00000-2823861042.png","folderPath":"temp","labels":22}
+2026-02-27T12:08:07: [2026-02-27 12:08:07] INFO  pngTagger | File processed {"filename":"00000-2823861042.png","uid":"ptb3in1jnlxfnqdt","labelsApplied":23}

@@ -5,14 +5,14 @@ import {
   PHOTO_UID_LOOKUP_INTERVAL_MS,
   WATCHED_IMAGE_FILE_RE,
   WATCHER_OPTIONS,
-} from "./config/constants";
-import { appEnv } from "./config/env";
-import { PhotoPrismClient } from "./services/PhotoPrismClient";
-import { extractPrompt } from "./utils/extractPrompt";
-import { waitForStable } from "./utils/fileStability";
-import { errorToString, Logger } from "./utils/logger";
-import { parsePositivePromptLabels } from "./utils/promptLabels";
-import { WorkerPool } from "./utils/workerPool";
+} from "./config/constants.js";
+import { appEnv } from "./config/env.js";
+import { PhotoPrismClient } from "./services/PhotoPrismClient.js";
+import { extractPrompt } from "./utils/extractPrompt.js";
+import { waitForStable } from "./utils/fileStability.js";
+import { errorToString, Logger } from "./utils/logger.js";
+import { parsePositivePromptLabels } from "./utils/promptLabels.js";
+import { WorkerPool } from "./utils/workerPool.js";
 
 class PngTaggerApp {
   private readonly logger = new Logger("pngTagger", appEnv.logLevel);
