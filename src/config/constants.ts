@@ -2,7 +2,7 @@ export const DEFAULT_MARKER_LABEL = "pp:prompt_imported";
 export const DEFAULT_CONCURRENCY = 5;
 
 export const WATCHER_OPTIONS = {
-  ignoreInitial: false,
+  ignoreInitial: true,
   awaitWriteFinish: {
     stabilityThreshold: 3000,
     pollInterval: 200,
