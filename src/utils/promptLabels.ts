@@ -20,7 +20,7 @@ export function parseModelPromptLabel(prompt: string): string | null {
 export function cleanToken(token: string): string {
   return token
     .trim()
-    .replace(/:\d+/g, "")
+    .replace(/:\d+(\.\d+)?/g, "")
     .replaceAll(".", "")
     .replace(/\(.*?:.*?\)/g, "")
     .replace(/[()[\]{}]/g, "")
