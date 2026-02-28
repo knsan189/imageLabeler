@@ -11,6 +11,18 @@ type PhotoItem = {
   UID?: string;
 };
 
+type PhotoLabel = {
+  Name?: string;
+  Label?: {
+    Name?: string;
+  };
+};
+
+type PhotoDetails = {
+  Labels?: PhotoLabel[];
+  PhotoLabels?: PhotoLabel[];
+};
+
 export class PhotoPrismClient {
   private readonly http: AxiosInstance;
   private readonly logger?: LoggerLike;
@@ -86,6 +98,31 @@ export class PhotoPrismClient {
         label,
         error: errorToString(error),
       });
+    }
+  }
+
+  async hasLabel(uid: string, label: string): Promise<boolean> {
+    try {
+      const res = await this.http.get<PhotoDetails>(`/api/v1/photos/${uid}`);
+      const target = label.trim().toLowerCase();
+      if (!target) return false;
+
+      const names = [
+        ...(res.data?.Labels ?? []),
+        ...(res.data?.PhotoLabels ?? []),
+      ]
+        .map((item) => item.Name ?? item.Label?.Name ?? "")
+        .map((name) => name.trim().toLowerCase())
+        .filter((name) => name.length > 0);
+
+      return names.includes(target);
+    } catch (error) {
+      this.logger?.warn("Failed to read photo labels", {
+        uid,
+        label,
+        error: errorToString(error),
+      });
+      return false;
     }
   }
 }

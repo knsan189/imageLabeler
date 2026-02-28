@@ -20,6 +20,7 @@
     "chokidar": "^5.0.0",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "fast-glob": "^3.3.3",
     "png-chunks-extract": "^1.0.0",
     "pngjs": "^7.0.0"
   },

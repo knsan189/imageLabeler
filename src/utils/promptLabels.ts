@@ -1,6 +1,10 @@
 export function parsePositivePromptLabels(prompt: string): string[] {
   const positive = prompt.split(/Negative prompt:/i)[0];
-  return positive.split(",").map(cleanToken).filter(Boolean);
+  return positive
+    .split(",")
+    .map(cleanToken)
+    .flatMap((label) => label.split("|"))
+    .filter(Boolean);
 }
 
 export function parseModelPromptLabel(prompt: string): string | null {

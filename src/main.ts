@@ -1,4 +1,6 @@
 import chokidar from "chokidar";
+import fs from "fs";
+import fg from "fast-glob";
 import path from "path";
 import {
   PHOTO_UID_LOOKUP_ATTEMPTS,
@@ -19,6 +21,7 @@ import { WorkerPool } from "./utils/workerPool.js";
 
 class PngTaggerApp {
   private readonly logger = new Logger("pngTagger", appEnv.logLevel);
+  private readonly watchPath = this.resolveWatchPath();
   private readonly photoPrism = new PhotoPrismClient(
     appEnv.photoPrismUrl,
     appEnv.photoPrismToken,
@@ -43,7 +46,16 @@ class PngTaggerApp {
       return;
     }
 
+    if (this.hasCliFlag("--bootstrap")) {
+      await this.runBootstrap();
+      return;
+    }
+
     this.startWatcher();
+  }
+
+  private hasCliFlag(flag: string): boolean {
+    return process.argv.includes(flag);
   }
 
   private getCliOptionValue(option: string): string | null {
@@ -66,10 +78,109 @@ class PngTaggerApp {
     return null;
   }
 
+  private resolveWatchPath(): string {
+    const fromCli = this.getCliOptionValue("--watch-path");
+    if (fromCli) return path.resolve(fromCli);
+
+    const fromEnv = process.env.WATCH_PATH?.trim();
+    if (fromEnv) return path.resolve(fromEnv);
+
+    const candidates = ["upload", "uploads", "import", "imports"];
+    for (const name of candidates) {
+      const candidatePath = path.join(appEnv.originalsPath, name);
+      if (fs.existsSync(candidatePath)) {
+        return candidatePath;
+      }
+    }
+
+    return path.join(appEnv.originalsPath, "import");
+  }
+
+  private resolvePhotoPath(filePath: string): { filename: string; folderPath: string } {
+    const filename = path.basename(filePath);
+    const relativePath = path.relative(appEnv.originalsPath, filePath);
+    const relativeDir = path.dirname(relativePath);
+    const folderPath =
+      relativeDir === "." ? "" : relativeDir.split(path.sep).join("/");
+
+    return { filename, folderPath };
+  }
+
+  private async runBootstrap(): Promise<void> {
+    this.logger.info("Bootstrap mode started", {
+      originalsPath: appEnv.originalsPath,
+      concurrency: appEnv.concurrency,
+    });
+
+    const files = await fg("**/*.{png,webp,jpg,jpeg}", {
+      cwd: appEnv.originalsPath,
+      absolute: true,
+      onlyFiles: true,
+      caseSensitiveMatch: false,
+      followSymbolicLinks: false,
+      suppressErrors: true,
+    });
+
+    this.logger.info("Bootstrap scan finished", {
+      filesFound: files.length,
+      originalsPath: appEnv.originalsPath,
+    });
+
+    for (const filePath of files) {
+      this.workerPool.enqueue(() => this.processFile(filePath));
+    }
+
+    this.logger.info("Bootstrap tasks queued", {
+      queued: files.length,
+      concurrency: appEnv.concurrency,
+    });
+
+    await this.workerPool.onIdle();
+
+    this.logger.info("Bootstrap mode finished", {
+      queued: files.length,
+    });
+  }
+
   private async processFile(filePath: string): Promise<void> {
     this.logger.info("Processing file", { filePath });
 
     await waitForStable(filePath);
+
+    const { filename, folderPath } = this.resolvePhotoPath(filePath);
+
+    this.logger.info("Resolving Photo UID", {
+      filename,
+      folderPath,
+    });
+
+    const uid = await this.photoPrism.waitForPhotoUidByFilename(
+      filename,
+      folderPath,
+      {
+        attempts: PHOTO_UID_LOOKUP_ATTEMPTS,
+        intervalMs: PHOTO_UID_LOOKUP_INTERVAL_MS,
+      },
+    );
+
+    if (!uid) {
+      this.logger.warn("Photo UID not found", { filename, folderPath });
+      return;
+    }
+
+    const alreadyImported = await this.photoPrism.hasLabel(
+      uid,
+      appEnv.markerLabel,
+    );
+
+    if (alreadyImported) {
+      this.logger.info("Skipping already imported photo", {
+        filename,
+        uid,
+        markerLabel: appEnv.markerLabel,
+      });
+      return;
+    }
 
     const prompt = await extractPrompt(filePath, { logger: this.logger });
 
@@ -89,31 +200,6 @@ class PngTaggerApp {
       return;
     }
 
-    const filename = path.basename(filePath);
-    const folderPath = path
-      .relative(appEnv.originalsPath, filePath)
-      .replace(`/${filename}`, "");
-
-    this.logger.info("Resolving Photo UID", {
-      filename,
-      folderPath,
-      labels: labels.length,
-    });
-
-    const uid = await this.photoPrism.waitForPhotoUidByFilename(
-      filename,
-      folderPath,
-      {
-        attempts: PHOTO_UID_LOOKUP_ATTEMPTS,
-        intervalMs: PHOTO_UID_LOOKUP_INTERVAL_MS,
-      },
-    );
-
-    if (!uid) {
-      this.logger.warn("Photo UID not found", { filename, folderPath });
-      return;
-    }
-
     for (const label of labels) {
       await this.photoPrism.addLabel(uid, label);
     }
@@ -128,13 +214,14 @@ class PngTaggerApp {
 
   private startWatcher(): void {
     chokidar
-      .watch(appEnv.originalsPath, WATCHER_OPTIONS)
+      .watch(this.watchPath, WATCHER_OPTIONS)
       .on("add", (filePath) => {
         if (!WATCHED_IMAGE_FILE_RE.test(filePath)) return;
         this.workerPool.enqueue(() => this.processFile(filePath));
       });
 
     this.logger.info("Watcher started", {
+      watchPath: this.watchPath,
       originalsPath: appEnv.originalsPath,
       concurrency: appEnv.concurrency,
     });
