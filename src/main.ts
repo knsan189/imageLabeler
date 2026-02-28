@@ -22,14 +22,11 @@ class PngTaggerApp {
   private readonly photoPrism = new PhotoPrismClient(
     appEnv.photoPrismUrl,
     appEnv.photoPrismToken,
-    this.logger.child("photoPrism")
+    this.logger.child("photoPrism"),
   );
-  private readonly workerPool = new WorkerPool(
-    appEnv.concurrency,
-    (error) => {
-      this.logger.error("Worker task failed", { error: errorToString(error) });
-    }
-  );
+  private readonly workerPool = new WorkerPool(appEnv.concurrency, (error) => {
+    this.logger.error("Worker task failed", { error: errorToString(error) });
+  });
 
   async run(): Promise<void> {
     const singleRunFilePath = this.resolveSingleRunFilePath();
@@ -38,7 +35,9 @@ class PngTaggerApp {
         throw new Error(`Unsupported file extension: ${singleRunFilePath}`);
       }
 
-      this.logger.info("Single-run mode started", { filePath: singleRunFilePath });
+      this.logger.info("Single-run mode started", {
+        filePath: singleRunFilePath,
+      });
       await this.processFile(singleRunFilePath);
       this.logger.info("Single-run mode finished");
       return;
@@ -73,18 +72,17 @@ class PngTaggerApp {
     await waitForStable(filePath);
 
     const prompt = await extractPrompt(filePath, { logger: this.logger });
+
     if (!prompt) {
       this.logger.warn("No prompt found", { filePath });
       return;
     }
 
-
-    const labels : string[] = [];
+    const labels: string[] = [];
     const positiveLabels = parsePositivePromptLabels(prompt);
-    labels.concat(positiveLabels);
+    labels.push(...positiveLabels);
     const modelLabel = parseModelPromptLabel(prompt);
     if (modelLabel) labels.push(modelLabel);
-
 
     if (!labels.length) {
       this.logger.warn("No labels parsed from prompt", { filePath });
@@ -95,16 +93,21 @@ class PngTaggerApp {
     const folderPath = path
       .relative(appEnv.originalsPath, filePath)
       .replace(`/${filename}`, "");
+
     this.logger.info("Resolving Photo UID", {
       filename,
       folderPath,
       labels: labels.length,
     });
 
-    const uid = await this.photoPrism.waitForPhotoUidByFilename(filename, folderPath, {
-      attempts: PHOTO_UID_LOOKUP_ATTEMPTS,
-      intervalMs: PHOTO_UID_LOOKUP_INTERVAL_MS,
-    });
+    const uid = await this.photoPrism.waitForPhotoUidByFilename(
+      filename,
+      folderPath,
+      {
+        attempts: PHOTO_UID_LOOKUP_ATTEMPTS,
+        intervalMs: PHOTO_UID_LOOKUP_INTERVAL_MS,
+      },
+    );
 
     if (!uid) {
       this.logger.warn("Photo UID not found", { filename, folderPath });
@@ -116,14 +119,20 @@ class PngTaggerApp {
     }
 
     await this.photoPrism.addLabel(uid, appEnv.markerLabel, 10);
-    this.logger.info("File processed", { filename, uid, labelsApplied: labels.length + 1 });
+    this.logger.info("File processed", {
+      filename,
+      uid,
+      labelsApplied: labels.length + 1,
+    });
   }
 
   private startWatcher(): void {
-    chokidar.watch(appEnv.originalsPath, WATCHER_OPTIONS).on("add", (filePath) => {
-      if (!WATCHED_IMAGE_FILE_RE.test(filePath)) return;
-      this.workerPool.enqueue(() => this.processFile(filePath));
-    });
+    chokidar
+      .watch(appEnv.originalsPath, WATCHER_OPTIONS)
+      .on("add", (filePath) => {
+        if (!WATCHED_IMAGE_FILE_RE.test(filePath)) return;
+        this.workerPool.enqueue(() => this.processFile(filePath));
+      });
 
     this.logger.info("Watcher started", {
       originalsPath: appEnv.originalsPath,
