@@ -1,13 +1,7 @@
 export const DEFAULT_MARKER_LABEL = "pp:prompt_imported";
 export const DEFAULT_CONCURRENCY = 5;
-
-export const WATCHER_OPTIONS = {
-  ignoreInitial: false,
-  awaitWriteFinish: {
-    stabilityThreshold: 3000,
-    pollInterval: 200,
-  },
-} as const;
+export const DEFAULT_POLL_INTERVAL_MS = 30_000;
+export const DEFAULT_POLL_COUNT = 300;
 
 export const WATCHED_IMAGE_FILE_RE = /\.(png|webp|jpg|jpeg)$/i;
 

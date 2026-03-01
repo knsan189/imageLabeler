@@ -1,5 +1,10 @@
 import "dotenv/config";
-import { DEFAULT_CONCURRENCY, DEFAULT_MARKER_LABEL } from "./constants.js";
+import {
+  DEFAULT_CONCURRENCY,
+  DEFAULT_MARKER_LABEL,
+  DEFAULT_POLL_COUNT,
+  DEFAULT_POLL_INTERVAL_MS,
+} from "./constants.js";
 import { LogLevel } from "../utils/logger.js";
 
 function requiredEnv(name: string): string {
@@ -32,6 +37,8 @@ export type AppEnv = {
   photoPrismToken: string;
   markerLabel: string;
   concurrency: number;
+  pollIntervalMs: number;
+  pollCount: number;
   logLevel: LogLevel;
 };
 
@@ -41,5 +48,7 @@ export const appEnv: AppEnv = {
   photoPrismToken: requiredEnv("PHOTOPRISM_TOKEN"),
   markerLabel: process.env.MARKER_LABEL?.trim() || DEFAULT_MARKER_LABEL,
   concurrency: numberEnv("CONCURRENCY", DEFAULT_CONCURRENCY),
+  pollIntervalMs: numberEnv("POLL_INTERVAL_MS", DEFAULT_POLL_INTERVAL_MS),
+  pollCount: numberEnv("POLL_COUNT", DEFAULT_POLL_COUNT),
   logLevel: logLevelEnv("LOG_LEVEL", "info"),
 };

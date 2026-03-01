@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from "axios";
+import path from "path";
 import { sleep } from "../utils/sleep.js";
 import { errorToString, LoggerLike } from "../utils/logger.js";
 
@@ -7,8 +8,18 @@ type WaitForUidOptions = {
   intervalMs?: number;
 };
 
+type PhotoFileRef = {
+  FileName?: string;
+  Name?: string;
+  Path?: string;
+};
+
 type PhotoItem = {
   UID?: string;
+  FileName?: string;
+  Name?: string;
+  Path?: string;
+  Files?: PhotoFileRef[];
 };
 
 type PhotoLabel = {
@@ -19,8 +30,19 @@ type PhotoLabel = {
 };
 
 type PhotoDetails = {
+  UID?: string;
+  FileName?: string;
+  Name?: string;
+  Path?: string;
+  Files?: PhotoFileRef[];
   Labels?: PhotoLabel[];
   PhotoLabels?: PhotoLabel[];
+};
+
+export type CaptionlessPhoto = {
+  uid: string;
+  filename: string;
+  folderPath: string;
 };
 
 export class PhotoPrismClient {
@@ -124,5 +146,128 @@ export class PhotoPrismClient {
       });
       return false;
     }
+  }
+
+  async listCaptionlessPhotos(count: number = 300): Promise<CaptionlessPhoto[]> {
+    const limit = Math.max(1, Math.floor(count));
+
+    try {
+      const res = await this.http.get<PhotoItem[]>("/api/v1/photos", {
+        params: {
+          count: limit,
+          q: 'Caption:""',
+        },
+      });
+
+      const items = res.data ?? [];
+      const result: CaptionlessPhoto[] = [];
+      const unresolvedUids: string[] = [];
+      const seenUids = new Set<string>();
+
+      for (const item of items) {
+        const uid = this.clean(item.UID);
+        if (!uid || seenUids.has(uid)) continue;
+        seenUids.add(uid);
+
+        const location = this.resolveLocation(item);
+        if (!location) {
+          unresolvedUids.push(uid);
+          continue;
+        }
+
+        result.push({
+          uid,
+          filename: location.filename,
+          folderPath: location.folderPath,
+        });
+      }
+
+      if (unresolvedUids.length > 0) {
+        const resolved = await Promise.all(
+          unresolvedUids.map(async (uid) => ({
+            uid,
+            location: await this.fetchLocationByUid(uid),
+          })),
+        );
+
+        for (const item of resolved) {
+          if (!item.location) continue;
+          result.push({
+            uid: item.uid,
+            filename: item.location.filename,
+            folderPath: item.location.folderPath,
+          });
+        }
+      }
+
+      return result;
+    } catch (error) {
+      this.logger?.warn("Failed to list captionless photos", {
+        count: limit,
+        error: errorToString(error),
+      });
+      return [];
+    }
+  }
+
+  private async fetchLocationByUid(
+    uid: string,
+  ): Promise<{ filename: string; folderPath: string } | null> {
+    try {
+      const res = await this.http.get<PhotoDetails>(`/api/v1/photos/${uid}`);
+      return this.resolveLocation(res.data);
+    } catch (error) {
+      this.logger?.warn("Failed to resolve photo location", {
+        uid,
+        error: errorToString(error),
+      });
+      return null;
+    }
+  }
+
+  private resolveLocation(
+    item: PhotoItem | PhotoDetails | null | undefined,
+  ): { filename: string; folderPath: string } | null {
+    if (!item) return null;
+
+    const rawFilename =
+      this.clean(item.FileName) ??
+      this.clean(item.Name) ??
+      this.clean(item.Files?.[0]?.FileName) ??
+      this.clean(item.Files?.[0]?.Name);
+
+    if (!rawFilename) return null;
+
+    const normalizedFilename = rawFilename.replace(/\\/g, "/");
+    const filename = path.posix.basename(normalizedFilename);
+    if (!filename || filename === ".") return null;
+
+    const fromFilenameDir = this.normalizePath(path.posix.dirname(normalizedFilename));
+    const fromItemPath = this.normalizePath(
+      this.clean(item.Path) ?? this.clean(item.Files?.[0]?.Path) ?? "",
+    );
+
+    const folderPath = this.mergeFolderPath(fromItemPath, fromFilenameDir);
+
+    return { filename, folderPath };
+  }
+
+  private mergeFolderPath(fromItemPath: string, fromFilenameDir: string): string {
+    if (!fromItemPath) return fromFilenameDir;
+    if (!fromFilenameDir) return fromItemPath;
+    if (fromItemPath === fromFilenameDir) return fromItemPath;
+    if (fromItemPath.endsWith(`/${fromFilenameDir}`)) return fromItemPath;
+    if (fromFilenameDir.endsWith(`/${fromItemPath}`)) return fromFilenameDir;
+    return this.normalizePath(`${fromItemPath}/${fromFilenameDir}`);
+  }
+
+  private normalizePath(input: string): string {
+    const normalized = input.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    return normalized === "." ? "" : normalized;
+  }
+
+  private clean(value: string | null | undefined): string | null {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
   }
 }

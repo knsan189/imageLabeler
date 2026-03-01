@@ -1,4 +1,3 @@
-import chokidar from "chokidar";
 import fs from "fs";
 import fg from "fast-glob";
 import path from "path";
@@ -6,7 +5,6 @@ import {
   PHOTO_UID_LOOKUP_ATTEMPTS,
   PHOTO_UID_LOOKUP_INTERVAL_MS,
   WATCHED_IMAGE_FILE_RE,
-  WATCHER_OPTIONS,
 } from "./config/constants.js";
 import { appEnv } from "./config/env.js";
 import { PhotoPrismClient } from "./services/PhotoPrismClient.js";
@@ -17,19 +15,20 @@ import {
   parseModelPromptLabel,
   parsePositivePromptLabels,
 } from "./utils/promptLabels.js";
+import { sleep } from "./utils/sleep.js";
 import { WorkerPool } from "./utils/workerPool.js";
 
 class PngTaggerApp {
   private readonly logger = new Logger("pngTagger", appEnv.logLevel);
-  private readonly watchPath = this.resolveWatchPath();
   private readonly photoPrism = new PhotoPrismClient(
     appEnv.photoPrismUrl,
     appEnv.photoPrismToken,
-    this.logger.child("photoPrism"),
+    this.logger.child("photoPrism")
   );
   private readonly workerPool = new WorkerPool(appEnv.concurrency, (error) => {
     this.logger.error("Worker task failed", { error: errorToString(error) });
   });
+  private readonly inFlightPhotoUids = new Set<string>();
 
   async run(): Promise<void> {
     const singleRunFilePath = this.resolveSingleRunFilePath();
@@ -51,7 +50,7 @@ class PngTaggerApp {
       return;
     }
 
-    this.startWatcher();
+    await this.startPolling();
   }
 
   private hasCliFlag(flag: string): boolean {
@@ -78,25 +77,10 @@ class PngTaggerApp {
     return null;
   }
 
-  private resolveWatchPath(): string {
-    const fromCli = this.getCliOptionValue("--watch-path");
-    if (fromCli) return path.resolve(fromCli);
-
-    const fromEnv = process.env.WATCH_PATH?.trim();
-    if (fromEnv) return path.resolve(fromEnv);
-
-    const candidates = ["upload", "uploads", "import", "imports"];
-    for (const name of candidates) {
-      const candidatePath = path.join(appEnv.originalsPath, name);
-      if (fs.existsSync(candidatePath)) {
-        return candidatePath;
-      }
-    }
-
-    return path.join(appEnv.originalsPath, "import");
-  }
-
-  private resolvePhotoPath(filePath: string): { filename: string; folderPath: string } {
+  private resolvePhotoPath(filePath: string): {
+    filename: string;
+    folderPath: string;
+  } {
     const filename = path.basename(filePath);
     const relativePath = path.relative(appEnv.originalsPath, filePath);
     const relativeDir = path.dirname(relativePath);
@@ -145,8 +129,6 @@ class PngTaggerApp {
   private async processFile(filePath: string): Promise<void> {
     this.logger.info("Processing file", { filePath });
 
-    await waitForStable(filePath);
-
     const { filename, folderPath } = this.resolvePhotoPath(filePath);
 
     this.logger.info("Resolving Photo UID", {
@@ -160,7 +142,7 @@ class PngTaggerApp {
       {
         attempts: PHOTO_UID_LOOKUP_ATTEMPTS,
         intervalMs: PHOTO_UID_LOOKUP_INTERVAL_MS,
-      },
+      }
     );
 
     if (!uid) {
@@ -168,11 +150,18 @@ class PngTaggerApp {
       return;
     }
 
+    await this.processResolvedPhoto(uid, filePath, filename);
+  }
+
+  private async processResolvedPhoto(
+    uid: string,
+    filePath: string,
+    filename: string
+  ): Promise<void> {
     const alreadyImported = await this.photoPrism.hasLabel(
       uid,
-      appEnv.markerLabel,
+      appEnv.markerLabel
     );
-
     if (alreadyImported) {
       this.logger.info("Skipping already imported photo", {
         filename,
@@ -182,21 +171,29 @@ class PngTaggerApp {
       return;
     }
 
-    const prompt = await extractPrompt(filePath, { logger: this.logger });
+    if (!fs.existsSync(filePath)) {
+      this.logger.warn("Photo source file does not exist", {
+        uid,
+        filePath,
+      });
+      return;
+    }
 
+    await waitForStable(filePath);
+
+    const prompt = await extractPrompt(filePath, { logger: this.logger });
     if (!prompt) {
-      this.logger.warn("No prompt found", { filePath });
+      this.logger.warn("No prompt found", { uid, filePath });
       return;
     }
 
     const labels: string[] = [];
-    const positiveLabels = parsePositivePromptLabels(prompt);
-    labels.push(...positiveLabels);
+    labels.push(...parsePositivePromptLabels(prompt));
     const modelLabel = parseModelPromptLabel(prompt);
     if (modelLabel) labels.push(modelLabel);
 
     if (!labels.length) {
-      this.logger.warn("No labels parsed from prompt", { filePath });
+      this.logger.warn("No labels parsed from prompt", { uid, filePath });
       return;
     }
 
@@ -212,19 +209,86 @@ class PngTaggerApp {
     });
   }
 
-  private startWatcher(): void {
-    chokidar
-      .watch(this.watchPath, WATCHER_OPTIONS)
-      .on("add", (filePath) => {
-        if (!WATCHED_IMAGE_FILE_RE.test(filePath)) return;
-        this.workerPool.enqueue(() => this.processFile(filePath));
-      });
+  private toAbsolutePhotoPath(folderPath: string, filename: string): string {
+    const normalizedDir = folderPath
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/^\/+|\/+$/g, "");
+    const segments = normalizedDir ? normalizedDir.split("/") : [];
+    return path.join(appEnv.originalsPath, ...segments, filename);
+  }
 
-    this.logger.info("Watcher started", {
-      watchPath: this.watchPath,
+  private async runPollCycle(): Promise<void> {
+    const captionlessPhotos = await this.photoPrism.listCaptionlessPhotos(
+      appEnv.pollCount
+    );
+
+    let queued = 0;
+    let skipped = 0;
+
+    for (const photo of captionlessPhotos) {
+      if (this.inFlightPhotoUids.has(photo.uid)) {
+        skipped += 1;
+        continue;
+      }
+
+      const filePath = this.toAbsolutePhotoPath(
+        photo.folderPath,
+        photo.filename
+      );
+
+      if (!WATCHED_IMAGE_FILE_RE.test(filePath)) {
+        skipped += 1;
+        this.logger.debug("Skipping unsupported file in captionless scan", {
+          uid: photo.uid,
+          filePath,
+        });
+        continue;
+      }
+
+      this.inFlightPhotoUids.add(photo.uid);
+      queued += 1;
+      this.workerPool.enqueue(async () => {
+        try {
+          await this.processResolvedPhoto(photo.uid, filePath, photo.filename);
+        } finally {
+          this.inFlightPhotoUids.delete(photo.uid);
+        }
+      });
+    }
+
+    this.logger.info("Poll cycle queued", {
+      found: captionlessPhotos.length,
+      queued,
+      skipped,
+      inFlight: this.inFlightPhotoUids.size,
+    });
+  }
+
+  private async startPolling(): Promise<void> {
+    this.logger.info("Polling started", {
+      pollIntervalMs: appEnv.pollIntervalMs,
+      pollCount: appEnv.pollCount,
       originalsPath: appEnv.originalsPath,
       concurrency: appEnv.concurrency,
     });
+
+    while (true) {
+      const startedAt = Date.now();
+      try {
+        await this.runPollCycle();
+        await this.workerPool.onIdle();
+      } catch (error) {
+        this.logger.error("Poll cycle failed", {
+          error: errorToString(error),
+        });
+      }
+
+      const elapsedMs = Date.now() - startedAt;
+      const waitMs = Math.max(0, appEnv.pollIntervalMs - elapsedMs);
+      this.logger.debug("Poll cycle finished", { elapsedMs, waitMs });
+      await sleep(waitMs);
+    }
   }
 }
 
