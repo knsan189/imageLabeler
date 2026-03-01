@@ -171,7 +171,8 @@ class PngTaggerApp {
       return;
     }
 
-    if (!fs.existsSync(filePath)) {
+    const resolvedFilePath = this.resolveExistingPhotoPath(filePath);
+    if (!resolvedFilePath) {
       this.logger.warn("Photo source file does not exist", {
         uid,
         filePath,
@@ -179,11 +180,19 @@ class PngTaggerApp {
       return;
     }
 
-    await waitForStable(filePath);
+    if (resolvedFilePath !== filePath) {
+      this.logger.info("Resolved photo source path", {
+        uid,
+        from: filePath,
+        to: resolvedFilePath,
+      });
+    }
 
-    const prompt = await extractPrompt(filePath, { logger: this.logger });
+    await waitForStable(resolvedFilePath);
+
+    const prompt = await extractPrompt(resolvedFilePath, { logger: this.logger });
     if (!prompt) {
-      this.logger.warn("No prompt found", { uid, filePath });
+      this.logger.warn("No prompt found", { uid, filePath: resolvedFilePath });
       return;
     }
 
@@ -193,7 +202,10 @@ class PngTaggerApp {
     if (modelLabel) labels.push(modelLabel);
 
     if (!labels.length) {
-      this.logger.warn("No labels parsed from prompt", { uid, filePath });
+      this.logger.warn("No labels parsed from prompt", {
+        uid,
+        filePath: resolvedFilePath,
+      });
       return;
     }
 
@@ -207,6 +219,98 @@ class PngTaggerApp {
       uid,
       labelsApplied: labels.length + 1,
     });
+  }
+
+  private resolveExistingPhotoPath(filePath: string): string | null {
+    const candidates = new Set<string>();
+
+    const addCandidate = (value: string | null | undefined): void => {
+      if (!value) return;
+      candidates.add(value);
+      candidates.add(value.normalize("NFC"));
+      candidates.add(value.normalize("NFD"));
+
+      try {
+        const decoded = decodeURIComponent(value);
+        candidates.add(decoded);
+        candidates.add(decoded.normalize("NFC"));
+        candidates.add(decoded.normalize("NFD"));
+      } catch {
+        // Keep original path when URI decoding fails.
+      }
+    };
+
+    addCandidate(filePath);
+    addCandidate(filePath.replace(/\+/g, " "));
+
+    for (const candidate of Array.from(candidates)) {
+      addCandidate(this.stripDuplicateImageExtension(candidate));
+    }
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
+
+    for (const candidate of candidates) {
+      const matched = this.matchFileInDirectory(candidate);
+      if (matched) return matched;
+    }
+
+    return null;
+  }
+
+  private matchFileInDirectory(filePath: string): string | null {
+    const dirPath = path.dirname(filePath);
+    if (!fs.existsSync(dirPath)) return null;
+
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(dirPath);
+    } catch {
+      return null;
+    }
+
+    const wantedBasename = path.basename(filePath);
+    const wantedKey = this.toLooseFileKey(wantedBasename);
+    const wantedStemKey = this.toStemKey(wantedBasename);
+    if (!wantedKey) return null;
+
+    for (const entry of entries) {
+      if (this.toLooseFileKey(entry) === wantedKey) {
+        return path.join(dirPath, entry);
+      }
+    }
+
+    if (!wantedStemKey) return null;
+    for (const entry of entries) {
+      if (this.toStemKey(entry) === wantedStemKey) {
+        return path.join(dirPath, entry);
+      }
+    }
+
+    return null;
+  }
+
+  private toLooseFileKey(value: string): string {
+    const normalized = value.trim();
+    if (!normalized) return "";
+    const stripped = this.stripDuplicateImageExtension(normalized);
+    return stripped.normalize("NFC").toLowerCase();
+  }
+
+  private toStemKey(value: string): string {
+    const normalized = value.trim();
+    if (!normalized) return "";
+    const lowered = normalized.normalize("NFC").toLowerCase();
+    const stem = lowered.replace(/(\.(?:png|webp|jpe?g))+$/i, "");
+    return stem;
+  }
+
+  private stripDuplicateImageExtension(value: string): string {
+    return value.replace(
+      /(\.(?:png|webp|jpe?g))\.(?:png|webp|jpe?g)$/i,
+      "$1"
+    );
   }
 
   private toAbsolutePhotoPath(folderPath: string, filename: string): string {
