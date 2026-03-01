@@ -236,7 +236,6 @@ class PngTaggerApp {
         photo.folderPath,
         photo.filename
       );
-
       if (!WATCHED_IMAGE_FILE_RE.test(filePath)) {
         skipped += 1;
         this.logger.debug("Skipping unsupported file in captionless scan", {
