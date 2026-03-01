@@ -26,6 +26,7 @@ type PhotoLabel = {
   Name?: string;
   Label?: {
     Name?: string;
+    Slug?: string;
   };
 };
 
@@ -151,15 +152,12 @@ export class PhotoPrismClient {
     try {
       const res = await this.http.get<PhotoDetails>(`/api/v1/photos/${uid}`);
       const target = label.trim().toLowerCase();
+
       if (!target) return false;
 
-      const names = [
-        ...(res.data?.Labels ?? []),
-        ...(res.data?.PhotoLabels ?? []),
-      ]
-        .map((item) => item.Name ?? item.Label?.Name ?? "")
-        .map((name) => name.trim().toLowerCase())
-        .filter((name) => name.length > 0);
+      const names = [...(res.data?.Labels ?? [])]
+        .map((item) => item.Label?.Slug?.trim().toLowerCase() ?? "")
+        .filter(Boolean);
 
       return names.includes(target);
     } catch (error) {
@@ -172,7 +170,9 @@ export class PhotoPrismClient {
     }
   }
 
-  async listCaptionlessPhotos(count: number = 300): Promise<CaptionlessPhoto[]> {
+  async listCaptionlessPhotos(
+    count: number = 300,
+  ): Promise<CaptionlessPhoto[]> {
     const limit = Math.max(1, Math.floor(count));
 
     try {
@@ -266,7 +266,9 @@ export class PhotoPrismClient {
     const filename = path.posix.basename(normalizedFilename);
     if (!filename || filename === ".") return null;
 
-    const fromFilenameDir = this.normalizePath(path.posix.dirname(normalizedFilename));
+    const fromFilenameDir = this.normalizePath(
+      path.posix.dirname(normalizedFilename),
+    );
     const fromItemPath = this.normalizePath(
       this.clean(item.Path) ?? this.clean(item.Files?.[0]?.Path) ?? "",
     );
@@ -276,7 +278,10 @@ export class PhotoPrismClient {
     return { filename, folderPath };
   }
 
-  private mergeFolderPath(fromItemPath: string, fromFilenameDir: string): string {
+  private mergeFolderPath(
+    fromItemPath: string,
+    fromFilenameDir: string,
+  ): string {
     if (!fromItemPath) return fromFilenameDir;
     if (!fromFilenameDir) return fromItemPath;
     if (fromItemPath === fromFilenameDir) return fromItemPath;
@@ -286,7 +291,10 @@ export class PhotoPrismClient {
   }
 
   private normalizePath(input: string): string {
-    const normalized = input.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    const normalized = input
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/^\/+|\/+$/g, "");
     return normalized === "." ? "" : normalized;
   }
 

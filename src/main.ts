@@ -23,7 +23,7 @@ class PngTaggerApp {
   private readonly photoPrism = new PhotoPrismClient(
     appEnv.photoPrismUrl,
     appEnv.photoPrismToken,
-    this.logger.child("photoPrism")
+    this.logger.child("photoPrism"),
   );
   private readonly workerPool = new WorkerPool(appEnv.concurrency, (error) => {
     this.logger.error("Worker task failed", { error: errorToString(error) });
@@ -31,50 +31,7 @@ class PngTaggerApp {
   private readonly inFlightPhotoUids = new Set<string>();
 
   async run(): Promise<void> {
-    const singleRunFilePath = this.resolveSingleRunFilePath();
-    if (singleRunFilePath) {
-      if (!WATCHED_IMAGE_FILE_RE.test(singleRunFilePath)) {
-        throw new Error(`Unsupported file extension: ${singleRunFilePath}`);
-      }
-
-      this.logger.info("Single-run mode started", {
-        filePath: singleRunFilePath,
-      });
-      await this.processFile(singleRunFilePath);
-      this.logger.info("Single-run mode finished");
-      return;
-    }
-
-    if (this.hasCliFlag("--bootstrap")) {
-      await this.runBootstrap();
-      return;
-    }
-
     await this.startPolling();
-  }
-
-  private hasCliFlag(flag: string): boolean {
-    return process.argv.includes(flag);
-  }
-
-  private getCliOptionValue(option: string): string | null {
-    const index = process.argv.indexOf(option);
-    if (index < 0) return null;
-    const value = process.argv[index + 1];
-    if (!value || value.startsWith("--")) {
-      throw new Error(`Missing value for ${option}`);
-    }
-    return value;
-  }
-
-  private resolveSingleRunFilePath(): string | null {
-    const fromCli = this.getCliOptionValue("--file");
-    if (fromCli) return path.resolve(fromCli);
-
-    const fromEnv = process.env.ONE_SHOT_FILE?.trim();
-    if (fromEnv) return path.resolve(fromEnv);
-
-    return null;
   }
 
   private resolvePhotoPath(filePath: string): {
@@ -90,78 +47,16 @@ class PngTaggerApp {
     return { filename, folderPath };
   }
 
-  private async runBootstrap(): Promise<void> {
-    this.logger.info("Bootstrap mode started", {
-      originalsPath: appEnv.originalsPath,
-      concurrency: appEnv.concurrency,
-    });
-
-    const files = await fg("**/*.{png,webp,jpg,jpeg}", {
-      cwd: appEnv.originalsPath,
-      absolute: true,
-      onlyFiles: true,
-      caseSensitiveMatch: false,
-      followSymbolicLinks: false,
-      suppressErrors: true,
-    });
-
-    this.logger.info("Bootstrap scan finished", {
-      filesFound: files.length,
-      originalsPath: appEnv.originalsPath,
-    });
-
-    for (const filePath of files) {
-      this.workerPool.enqueue(() => this.processFile(filePath));
-    }
-
-    this.logger.info("Bootstrap tasks queued", {
-      queued: files.length,
-      concurrency: appEnv.concurrency,
-    });
-
-    await this.workerPool.onIdle();
-
-    this.logger.info("Bootstrap mode finished", {
-      queued: files.length,
-    });
-  }
-
-  private async processFile(filePath: string): Promise<void> {
-    this.logger.info("Processing file", { filePath });
-
-    const { filename, folderPath } = this.resolvePhotoPath(filePath);
-
-    this.logger.info("Resolving Photo UID", {
-      filename,
-      folderPath,
-    });
-
-    const uid = await this.photoPrism.waitForPhotoUidByFilename(
-      filename,
-      folderPath,
-      {
-        attempts: PHOTO_UID_LOOKUP_ATTEMPTS,
-        intervalMs: PHOTO_UID_LOOKUP_INTERVAL_MS,
-      }
-    );
-
-    if (!uid) {
-      this.logger.warn("Photo UID not found", { filename, folderPath });
-      return;
-    }
-
-    await this.processResolvedPhoto(uid, filePath, filename);
-  }
-
   private async processResolvedPhoto(
     uid: string,
     filePath: string,
-    filename: string
+    filename: string,
   ): Promise<void> {
     const alreadyImported = await this.photoPrism.hasLabel(
       uid,
-      appEnv.markerLabel
+      appEnv.markerLabel,
     );
+
     if (alreadyImported) {
       this.logger.info("Skipping already imported photo", {
         filename,
@@ -179,9 +74,10 @@ class PngTaggerApp {
       return;
     }
 
-    await waitForStable(filePath);
+    await this.photoPrism.addLabel(uid, appEnv.markerLabel, 10);
 
     const prompt = await extractPrompt(filePath, { logger: this.logger });
+
     if (!prompt) {
       this.logger.warn("No prompt found", { uid, filePath });
       return;
@@ -201,7 +97,6 @@ class PngTaggerApp {
       await this.photoPrism.addLabel(uid, label);
     }
 
-    await this.photoPrism.addLabel(uid, appEnv.markerLabel, 10);
     this.logger.info("File processed", {
       filename,
       uid,
@@ -220,7 +115,7 @@ class PngTaggerApp {
 
   private async runPollCycle(): Promise<void> {
     const captionlessPhotos = await this.photoPrism.listCaptionlessPhotos(
-      appEnv.pollCount
+      appEnv.pollCount,
     );
 
     let queued = 0;
@@ -234,7 +129,7 @@ class PngTaggerApp {
 
       const filePath = this.toAbsolutePhotoPath(
         photo.folderPath,
-        photo.filename
+        photo.filename,
       );
       if (!WATCHED_IMAGE_FILE_RE.test(filePath)) {
         skipped += 1;
