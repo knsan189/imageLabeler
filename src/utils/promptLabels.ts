@@ -1,6 +1,14 @@
-export function parsePositivePromptLabels(prompt: string): string[] {
-  const positive = prompt.split(/Negative prompt:/i)[0];
-  return positive
+export function parsePositivePrompt(prompt: string): string {
+  const temp = prompt.split(/Negative prompt:/i)[0];
+  const positive = temp
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return positive.join(",");
+}
+
+export function parsePositivePromptLabels(positivePrompt: string): string[] {
+  return positivePrompt
     .split(",")
     .map(cleanToken)
     .flatMap((label) => label.split("|"))

@@ -40,7 +40,7 @@ export class PhotoPrismClient {
 
   async findPhotoUidByFilename(
     filename: string,
-    relDir: string
+    relDir: string,
   ): Promise<string | null> {
     try {
       const q = `path:"${relDir}" name:"${filename}"`;
@@ -64,7 +64,7 @@ export class PhotoPrismClient {
   async waitForPhotoUidByFilename(
     filename: string,
     relDir: string,
-    options: WaitForUidOptions = {}
+    options: WaitForUidOptions = {},
   ): Promise<string | null> {
     const attempts = options.attempts ?? 20;
     const intervalMs = options.intervalMs ?? 3_000;
@@ -85,7 +85,11 @@ export class PhotoPrismClient {
     return null;
   }
 
-  async addLabel(uid: string, label: string, priority: number = 0): Promise<void> {
+  async addLabel(
+    uid: string,
+    label: string,
+    priority: number = 0,
+  ): Promise<void> {
     try {
       await this.http.post(`/api/v1/photos/${uid}/label`, {
         Name: label,
@@ -96,6 +100,26 @@ export class PhotoPrismClient {
       this.logger?.warn("Failed to add label", {
         uid,
         label,
+        error: errorToString(error),
+      });
+    }
+  }
+
+  async updatePhoto(
+    uid: string,
+    description: string,
+    caption: string,
+  ): Promise<void> {
+    try {
+      await this.http.put(`/api/v1/photos/${uid}`, {
+        Description: description,
+        Caption: caption,
+        CaptionSrc: "manual",
+      });
+    } catch (error) {
+      this.logger?.warn("Failed to update photo", {
+        uid,
+        description,
         error: errorToString(error),
       });
     }

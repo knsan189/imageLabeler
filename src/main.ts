@@ -15,6 +15,7 @@ import { waitForStable } from "./utils/fileStability.js";
 import { errorToString, Logger } from "./utils/logger.js";
 import {
   parseModelPromptLabel,
+  parsePositivePrompt,
   parsePositivePromptLabels,
 } from "./utils/promptLabels.js";
 import { WorkerPool } from "./utils/workerPool.js";
@@ -22,6 +23,10 @@ import { WorkerPool } from "./utils/workerPool.js";
 class PngTaggerApp {
   private readonly logger = new Logger("pngTagger", appEnv.logLevel);
   private readonly watchPath = this.resolveWatchPath();
+  private readonly status = {
+    isWatching: false,
+    uploadedFilesCount: 0,
+  };
   private readonly photoPrism = new PhotoPrismClient(
     appEnv.photoPrismUrl,
     appEnv.photoPrismToken,
@@ -93,10 +98,13 @@ class PngTaggerApp {
       }
     }
 
-    return path.join(appEnv.originalsPath, "import");
+    return path.join(appEnv.originalsPath, "temp");
   }
 
-  private resolvePhotoPath(filePath: string): { filename: string; folderPath: string } {
+  private resolvePhotoPath(filePath: string): {
+    filename: string;
+    folderPath: string;
+  } {
     const filename = path.basename(filePath);
     const relativePath = path.relative(appEnv.originalsPath, filePath);
     const relativeDir = path.dirname(relativePath);
@@ -109,7 +117,7 @@ class PngTaggerApp {
   private async runBootstrap(): Promise<void> {
     this.logger.info("Bootstrap mode started", {
       originalsPath: appEnv.originalsPath,
-      concurrency: appEnv.concurrency,
+      concurrency: appEnv.bootstrapConcurrency,
     });
 
     const files = await fg("**/*.{png,webp,jpg,jpeg}", {
@@ -189,8 +197,13 @@ class PngTaggerApp {
       return;
     }
 
+    const positivePrompt = parsePositivePrompt(prompt);
+    this.logger.info("Updating photo");
+    await this.photoPrism.updatePhoto(uid, prompt, positivePrompt);
+
     const labels: string[] = [];
-    const positiveLabels = parsePositivePromptLabels(prompt);
+    const positiveLabels = parsePositivePromptLabels(positivePrompt);
+
     labels.push(...positiveLabels);
     const modelLabel = parseModelPromptLabel(prompt);
     if (modelLabel) labels.push(modelLabel);
@@ -212,19 +225,31 @@ class PngTaggerApp {
     });
   }
 
+  private logWatchStatus(): void {
+    if (!this.status.isWatching) return;
+    this.logger.info(
+      `[Main] Status: Watching=${this.status.isWatching}, Uploaded=${this.status.uploadedFilesCount}`,
+    );
+  }
+
   private startWatcher(): void {
-    chokidar
-      .watch(this.watchPath, WATCHER_OPTIONS)
-      .on("add", (filePath) => {
-        if (!WATCHED_IMAGE_FILE_RE.test(filePath)) return;
-        this.workerPool.enqueue(() => this.processFile(filePath));
-      });
+    this.status.isWatching = true;
+
+    chokidar.watch(this.watchPath, WATCHER_OPTIONS).on("add", (filePath) => {
+      if (!WATCHED_IMAGE_FILE_RE.test(filePath)) return;
+      this.status.uploadedFilesCount += 1;
+      this.workerPool.enqueue(() => this.processFile(filePath));
+    });
 
     this.logger.info("Watcher started", {
       watchPath: this.watchPath,
       originalsPath: appEnv.originalsPath,
       concurrency: appEnv.concurrency,
     });
+
+    setInterval(() => {
+      this.logWatchStatus();
+    }, 10_000);
   }
 }
 

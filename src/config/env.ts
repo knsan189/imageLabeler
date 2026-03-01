@@ -32,6 +32,7 @@ export type AppEnv = {
   photoPrismToken: string;
   markerLabel: string;
   concurrency: number;
+  bootstrapConcurrency: number;
   logLevel: LogLevel;
 };
 
@@ -42,4 +43,5 @@ export const appEnv: AppEnv = {
   markerLabel: process.env.MARKER_LABEL?.trim() || DEFAULT_MARKER_LABEL,
   concurrency: numberEnv("CONCURRENCY", DEFAULT_CONCURRENCY),
   logLevel: logLevelEnv("LOG_LEVEL", "info"),
+  bootstrapConcurrency: numberEnv("BOOTSTRAP_CONCURRENCY", DEFAULT_CONCURRENCY),
 };
