@@ -4,17 +4,17 @@ import { WATCHED_IMAGE_FILE_RE } from "./config/constants.js";
 import { appEnv } from "./config/env.js";
 import { ImmichClient } from "./services/ImmichClient.js";
 import { extractPrompt } from "./utils/extractPrompt.js";
-import { waitForStable } from "./utils/fileStability.js";
 import { errorToString, Logger } from "./utils/logger.js";
 import {
   parseModelPromptLabel,
+  parsePositivePrompt,
   parsePositivePromptLabels,
 } from "./utils/promptLabels.js";
-import { sleep } from "./utils/sleep.js";
 import { WorkerPool } from "./utils/workerPool.js";
+import { sleep } from "./utils/sleep.js";
 
-class PngTaggerApp {
-  private readonly logger = new Logger("pngTagger", appEnv.logLevel);
+class ImageLabelerApp {
+  private readonly logger = new Logger("imageLabeler", appEnv.logLevel);
 
   private readonly immich = new ImmichClient(
     appEnv.immichUrl,
@@ -143,8 +143,6 @@ class PngTaggerApp {
       });
     }
 
-    await waitForStable(resolvedFilePath);
-
     const prompt = await extractPrompt(resolvedFilePath, {
       logger: this.logger,
     });
@@ -246,7 +244,7 @@ class PngTaggerApp {
       concurrency: appEnv.concurrency,
     });
 
-    while (true) {
+    for (;;) {
       const startedAt = Date.now();
 
       try {
@@ -266,8 +264,8 @@ class PngTaggerApp {
   }
 }
 
-void new PngTaggerApp().run().catch((error) => {
-  const logger = new Logger("pngTagger", appEnv.logLevel);
+void new ImageLabelerApp().run().catch((error) => {
+  const logger = new Logger("imageLabeler", appEnv.logLevel);
   logger.error("Fatal error", { error: errorToString(error) });
   process.exitCode = 1;
 });

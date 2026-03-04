@@ -17,6 +17,7 @@
   "dependencies": {
     "@types/express": "^5.0.6",
     "@types/pngjs": "^6.0.5",
+    "@typescript-eslint/parser": "^8.56.1",
     "axios": "^1.13.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",

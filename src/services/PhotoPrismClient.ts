@@ -1,12 +1,8 @@
 import axios, { AxiosInstance } from "axios";
 import path from "path";
-import { sleep } from "../utils/sleep.js";
 import { errorToString, LoggerLike } from "../utils/logger.js";
 
-type WaitForUidOptions = {
-  attempts?: number;
-  intervalMs?: number;
-};
+const DEFAULT_YEAR = 1900;
 
 type PhotoFileRef = {
   FileName?: string;
@@ -32,12 +28,14 @@ type PhotoLabel = {
 
 type PhotoDetails = {
   UID?: string;
+  Caption?: string;
   FileName?: string;
   Name?: string;
   Path?: string;
   Files?: PhotoFileRef[];
   Labels?: PhotoLabel[];
   PhotoLabels?: PhotoLabel[];
+  Year?: number;
 };
 
 export type CaptionlessPhoto = {
@@ -61,54 +59,7 @@ export class PhotoPrismClient {
     this.logger = logger;
   }
 
-  async findPhotoUidByFilename(
-    filename: string,
-    relDir: string,
-  ): Promise<string | null> {
-    try {
-      const q = `path:"${relDir}" name:"${filename}"`;
-      const res = await this.http.get<PhotoItem[]>("/api/v1/photos", {
-        params: {
-          q,
-          count: 1,
-        },
-      });
-      return res.data?.[0]?.UID ?? null;
-    } catch (error) {
-      this.logger?.warn("Photo UID lookup request failed", {
-        filename,
-        relDir,
-        error: errorToString(error),
-      });
-      return null;
-    }
-  }
-
-  async waitForPhotoUidByFilename(
-    filename: string,
-    relDir: string,
-    options: WaitForUidOptions = {},
-  ): Promise<string | null> {
-    const attempts = options.attempts ?? 20;
-    const intervalMs = options.intervalMs ?? 3_000;
-
-    for (let i = 0; i < attempts; i += 1) {
-      const uid = await this.findPhotoUidByFilename(filename, relDir);
-      this.logger?.debug("Photo UID lookup result", {
-        filename,
-        relDir,
-        attempt: i + 1,
-        attempts,
-        uid,
-      });
-      if (uid) return uid;
-      await sleep(intervalMs);
-    }
-
-    return null;
-  }
-
-  async addLabel(
+  public async addLabel(
     uid: string,
     label: string,
     priority: number = 0,
@@ -130,39 +81,57 @@ export class PhotoPrismClient {
 
   async updatePhoto(
     uid: string,
-    description: string,
     caption: string,
+    year: number = DEFAULT_YEAR,
   ): Promise<void> {
     try {
-      await this.http.put(`/api/v1/photos/${uid}`, {
-        Description: description,
+      this.http.put(`/api/v1/photos/${uid}`, {
         Caption: caption,
         CaptionSrc: "manual",
+        Year: year,
+        TakenSrc: "manual",
       });
     } catch (error) {
       this.logger?.warn("Failed to update photo", {
         uid,
-        description,
         error: errorToString(error),
       });
     }
   }
 
-  async hasLabel(uid: string, label: string): Promise<boolean> {
+  async updatePhotoYear(
+    uid: string,
+    year: number = DEFAULT_YEAR,
+  ): Promise<void> {
     try {
-      const res = await this.http.get<PhotoDetails>(`/api/v1/photos/${uid}`);
+      await this.http.put(`/api/v1/photos/${uid}`, {
+        Year: year,
+        Month: 1,
+        Day: 1,
+        TakenSrc: "manual",
+      });
+    } catch (error) {
+      this.logger?.warn("Failed to update photo location", {
+        uid,
+        error: errorToString(error),
+      });
+    }
+  }
+
+  hasLabel(photo: PhotoDetails, label: string) {
+    try {
       const target = label.trim().toLowerCase();
 
       if (!target) return false;
 
-      const names = [...(res.data?.Labels ?? [])]
+      const names = [...(photo.Labels ?? [])]
         .map((item) => item.Label?.Slug?.trim().toLowerCase() ?? "")
         .filter(Boolean);
 
       return names.includes(target);
     } catch (error) {
       this.logger?.warn("Failed to read photo labels", {
-        uid,
+        photo: photo.UID,
         label,
         error: errorToString(error),
       });
@@ -179,7 +148,7 @@ export class PhotoPrismClient {
       const res = await this.http.get<PhotoItem[]>("/api/v1/photos", {
         params: {
           count: limit,
-          q: 'Caption:""',
+          q: `Year:2025`,
         },
       });
 
@@ -231,6 +200,19 @@ export class PhotoPrismClient {
         error: errorToString(error),
       });
       return [];
+    }
+  }
+
+  async getPhoto(uid: string): Promise<PhotoDetails | null> {
+    try {
+      const res = await this.http.get<PhotoDetails>(`/api/v1/photos/${uid}`);
+      return res.data;
+    } catch (error) {
+      this.logger?.warn("Failed to get photo", {
+        uid,
+        error: errorToString(error),
+      });
+      return null;
     }
   }
 
