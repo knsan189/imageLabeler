@@ -18,10 +18,8 @@ export function parsePositivePromptLabels(positivePrompt: string): string[] {
 export function parseModelPromptLabel(prompt: string): string | null {
   const modelMatch = prompt.match(/(?:^|,\s*)Model:\s*([^,\n\r]+)/i);
   if (!modelMatch?.[1]) return null;
-
   const normalized = cleanToken(modelMatch[1]);
   if (!normalized) return null;
-
   return `${normalized}`;
 }
 

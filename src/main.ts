@@ -1,25 +1,27 @@
 import fs from "fs";
-import fg from "fast-glob";
 import path from "path";
-import {
-  PHOTO_UID_LOOKUP_ATTEMPTS,
-  PHOTO_UID_LOOKUP_INTERVAL_MS,
-  WATCHED_IMAGE_FILE_RE,
-} from "./config/constants.js";
+import { WATCHED_IMAGE_FILE_RE } from "./config/constants.js";
 import { appEnv } from "./config/env.js";
 import { PhotoPrismClient } from "./services/PhotoPrismClient.js";
 import { extractPrompt } from "./utils/extractPrompt.js";
-import { waitForStable } from "./utils/fileStability.js";
 import { errorToString, Logger } from "./utils/logger.js";
 import {
   parseModelPromptLabel,
+  parsePositivePrompt,
   parsePositivePromptLabels,
 } from "./utils/promptLabels.js";
-import { sleep } from "./utils/sleep.js";
 import { WorkerPool } from "./utils/workerPool.js";
+import { sleep } from "./utils/sleep.js";
 
-class PngTaggerApp {
-  private readonly logger = new Logger("pngTagger", appEnv.logLevel);
+const filterLabels = [
+  "masterpiece",
+  "best quality",
+  "ultra high quality",
+  "1girl",
+];
+
+class ImageLabelerApp {
+  private readonly logger = new Logger("imageLabeler", appEnv.logLevel);
   private readonly photoPrism = new PhotoPrismClient(
     appEnv.photoPrismUrl,
     appEnv.photoPrismToken,
@@ -34,17 +36,8 @@ class PngTaggerApp {
     await this.startPolling();
   }
 
-  private resolvePhotoPath(filePath: string): {
-    filename: string;
-    folderPath: string;
-  } {
-    const filename = path.basename(filePath);
-    const relativePath = path.relative(appEnv.originalsPath, filePath);
-    const relativeDir = path.dirname(relativePath);
-    const folderPath =
-      relativeDir === "." ? "" : relativeDir.split(path.sep).join("/");
-
-    return { filename, folderPath };
+  private async updatePhotoYear(uid: string): Promise<void> {
+    await this.photoPrism.updatePhotoYear(uid);
   }
 
   private async processResolvedPhoto(
@@ -52,26 +45,69 @@ class PngTaggerApp {
     filePath: string,
     filename: string,
   ): Promise<void> {
-    const alreadyImported = await this.photoPrism.hasLabel(
-      uid,
-      appEnv.markerLabel,
-    );
+    const photo = await this.photoPrism.getPhoto(uid);
 
-    if (alreadyImported) {
-      this.logger.info("Skipping already imported photo", {
-        filename,
-        uid,
-        markerLabel: appEnv.markerLabel,
-      });
+    if (!photo) {
+      this.logger.warn("Photo not found", { uid, filename });
       return;
     }
 
-    const resolvedFilePath = this.resolveExistingPhotoPath(filePath);
-    if (!resolvedFilePath) {
-      this.logger.warn("Photo source file does not exist", {
+    if (this.photoPrism.hasLabel(photo, appEnv.markerLabel)) {
+      await this.processAlreadyImportedPhoto(
         uid,
         filePath,
-      });
+        filename,
+        Boolean(photo.Caption),
+      );
+      return;
+    }
+
+    await this.processNewPhoto(uid, filePath, filename);
+  }
+
+  private async processAlreadyImportedPhoto(
+    uid: string,
+    filePath: string,
+    filename: string,
+    shouldUpdateCaption: boolean,
+  ): Promise<void> {
+    this.logger.info("Skipping already imported photo", {
+      filename,
+      uid,
+    });
+    this.logger.info("Updating photo Date", {
+      uid,
+      filename,
+    });
+    if (shouldUpdateCaption) {
+      const resolvedFilePath = this.resolvePhotoPathOrWarn(uid, filePath);
+      if (resolvedFilePath) {
+        const prompt = await this.extractPromptOrSetNoPrompt(
+          uid,
+          resolvedFilePath,
+        );
+        if (!prompt) {
+          return;
+        }
+        const positivePrompt = parsePositivePrompt(prompt);
+        this.logger.info("Updating photo Caption", {
+          uid,
+        });
+        await this.photoPrism.updatePhoto(uid, positivePrompt);
+      }
+    } else {
+      await this.updatePhotoYear(uid);
+    }
+  }
+
+  private async processNewPhoto(
+    uid: string,
+    filePath: string,
+    filename: string,
+  ): Promise<void> {
+    const resolvedFilePath = this.resolvePhotoPathOrWarn(uid, filePath);
+
+    if (!resolvedFilePath) {
       return;
     }
 
@@ -85,20 +121,28 @@ class PngTaggerApp {
       });
     }
 
-    await waitForStable(resolvedFilePath);
-
-    const prompt = await extractPrompt(resolvedFilePath, {
-      logger: this.logger,
-    });
+    const prompt = await this.extractPromptOrSetNoPrompt(uid, resolvedFilePath);
     if (!prompt) {
-      this.logger.warn("No prompt found", { uid, filePath: resolvedFilePath });
       return;
     }
 
     const labels: string[] = [];
-    labels.push(...parsePositivePromptLabels(prompt));
+    const positivePrompt = parsePositivePrompt(prompt);
+
+    if (positivePrompt) {
+      this.logger.info("Updating photo Caption", {
+        uid,
+      });
+      this.photoPrism.updatePhoto(uid, positivePrompt);
+      const positiveLabels = parsePositivePromptLabels(positivePrompt);
+      labels.push(...positiveLabels);
+    }
+
     const modelLabel = parseModelPromptLabel(prompt);
-    if (modelLabel) labels.push(modelLabel);
+
+    if (modelLabel) {
+      labels.push(modelLabel);
+    }
 
     if (!labels.length) {
       this.logger.warn("No labels parsed from prompt", {
@@ -108,7 +152,9 @@ class PngTaggerApp {
       return;
     }
 
-    for (const label of labels) {
+    for (const label of labels.filter(
+      (label) => !filterLabels.includes(label),
+    )) {
       await this.photoPrism.addLabel(uid, label);
     }
 
@@ -117,6 +163,36 @@ class PngTaggerApp {
       uid,
       labelsApplied: labels.length + 1,
     });
+  }
+
+  private resolvePhotoPathOrWarn(uid: string, filePath: string): string | null {
+    const resolvedFilePath = this.resolveExistingPhotoPath(filePath);
+    if (!resolvedFilePath) {
+      this.logger.warn("Photo source file does not exist", {
+        uid,
+        filePath,
+      });
+      return null;
+    }
+
+    return resolvedFilePath;
+  }
+
+  private async extractPromptOrSetNoPrompt(
+    uid: string,
+    resolvedFilePath: string,
+  ): Promise<string | null> {
+    const prompt = await extractPrompt(resolvedFilePath, {
+      logger: this.logger,
+    });
+
+    if (prompt) {
+      return prompt;
+    }
+
+    this.logger.warn("No prompt found", { uid, filePath: resolvedFilePath });
+    await this.photoPrism.updatePhoto(uid, "no prompt");
+    return null;
   }
 
   private resolveExistingPhotoPath(filePath: string): string | null {
@@ -134,7 +210,7 @@ class PngTaggerApp {
         candidates.add(decoded.normalize("NFC"));
         candidates.add(decoded.normalize("NFD"));
       } catch {
-        // Keep original path when URI decoding fails.
+        // ignore
       }
     };
 
@@ -271,7 +347,7 @@ class PngTaggerApp {
       concurrency: appEnv.concurrency,
     });
 
-    while (true) {
+    for (;;) {
       const startedAt = Date.now();
       try {
         await this.runPollCycle();
@@ -290,8 +366,8 @@ class PngTaggerApp {
   }
 }
 
-void new PngTaggerApp().run().catch((error) => {
-  const logger = new Logger("pngTagger", appEnv.logLevel);
+void new ImageLabelerApp().run().catch((error) => {
+  const logger = new Logger("imageLabeler", appEnv.logLevel);
   logger.error("Fatal error", { error: errorToString(error) });
   process.exitCode = 1;
 });

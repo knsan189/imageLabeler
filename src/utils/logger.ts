@@ -62,8 +62,8 @@ export class Logger implements LoggerLike {
     private readonly scope: string,
     private readonly minLevel: LogLevel = "info",
     private readonly useColor: boolean = Boolean(
-      process.stdout.isTTY && !process.env.NO_COLOR
-    )
+      process.stdout.isTTY && !process.env.NO_COLOR,
+    ),
   ) {}
 
   child(scope: string): Logger {
@@ -91,7 +91,7 @@ export class Logger implements LoggerLike {
 
     const ts = formatTime(new Date());
     const levelText = level.toUpperCase().padEnd(5, " ");
-    const base = `[${ts}] ${levelText} ${this.scope} | ${message}`;
+    const base = `[${ts}] ${levelText} ${message}`;
     const metaText = serializeMeta(meta);
     const line = metaText ? `${base} ${metaText}` : base;
 
