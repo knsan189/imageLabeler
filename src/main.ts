@@ -7,6 +7,7 @@ import { extractPrompt } from "./utils/extractPrompt.js";
 import { errorToString, Logger } from "./utils/logger.js";
 import {
   parseModelPromptLabel,
+  parsePositivePrompt,
   parsePositivePromptLabels,
 } from "./utils/promptLabels.js";
 import { WorkerPool } from "./utils/workerPool.js";
@@ -168,22 +169,26 @@ class ImageLabelerApp {
     const prompt = await extractPrompt(resolvedFilePath, {
       logger: this.logger,
     });
+
+    const markerAlbumName = appEnv.markerLabel;
+
     if (!prompt) {
       this.logger.warn("No prompt found", {
         assetId,
         filePath: resolvedFilePath,
       });
+
+      await this.immich.getOrCreateAlbumId(markerAlbumName);
       return;
     }
 
-    // ✅ 기존 라벨 파싱 로직 그대로 활용
     const albumNames: string[] = [];
-    albumNames.push(...parsePositivePromptLabels(prompt));
+    const positivePrompt = parsePositivePrompt(prompt);
+    albumNames.push(...parsePositivePromptLabels(positivePrompt));
     const modelAlbum = parseModelPromptLabel(prompt);
     if (modelAlbum) albumNames.push(modelAlbum);
 
-    const markerAlbumName = appEnv.markerLabel; // 예: "_labeled_v1"
-    if (markerAlbumName?.trim()) albumNames.push(markerAlbumName);
+    albumNames.push(markerAlbumName);
 
     const uniqueAlbumNames = Array.from(
       new Set(albumNames.map((v) => v.trim()).filter(Boolean)),
@@ -205,6 +210,12 @@ class ImageLabelerApp {
       await this.immich.addAssetsToAlbum(albumId, [assetId]);
       albumsApplied += 1;
     }
+    this.logger.info("Albums applied", {
+      assetId,
+    });
+
+    await this.immich.updateAssetDescription(assetId, prompt);
+    this.logger.info("Asset description updated", { assetId });
 
     this.logger.info("Asset processed", {
       filename,

@@ -129,6 +129,25 @@ export class ImmichClient {
     }
   }
 
+  async updateAssetDescription(
+    assetId: string,
+    description: string,
+  ): Promise<void> {
+    const id = assetId.trim();
+    if (!id) return;
+
+    try {
+      await this.http.put(`/assets/${id}`, {
+        description,
+      });
+    } catch (error) {
+      this.logger?.warn("Failed to update asset description", {
+        assetId: id,
+        error: errorToString(error),
+      });
+    }
+  }
+
   public async addAssetsToAlbum(
     albumId: string,
     assetIds: string[],
