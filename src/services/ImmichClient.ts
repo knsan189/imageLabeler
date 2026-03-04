@@ -147,4 +147,47 @@ export class ImmichClient {
       });
     }
   }
+
+  public async listAlbums(): Promise<
+    { id: string; albumName?: string; assetCount?: number }[]
+  > {
+    try {
+      const res = await this.http.get<AlbumResponse[]>("/albums");
+
+      return (res.data ?? []).map((a) => ({
+        id: a.id,
+        albumName: a.albumName,
+        assetCount: a.assetCount,
+      }));
+    } catch (error) {
+      this.logger?.warn("Failed to list albums", {
+        error: errorToString(error),
+      });
+      return [];
+    }
+  }
+
+  public async deleteAlbum(albumId: string): Promise<boolean> {
+    const id = albumId.trim();
+    if (!id) return false;
+
+    try {
+      await this.http.delete(`/albums/${id}`);
+
+      // 캐시 정리
+      for (const [name, cachedId] of this.albumIdCache.entries()) {
+        if (cachedId === id) {
+          this.albumIdCache.delete(name);
+        }
+      }
+
+      return true;
+    } catch (error) {
+      this.logger?.warn("Failed to delete album", {
+        albumId: id,
+        error: errorToString(error),
+      });
+      return false;
+    }
+  }
 }

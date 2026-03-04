@@ -28,6 +28,7 @@ class ImageLabelerApp {
   private readonly inFlightAssetIds = new Set<string>();
 
   async run(): Promise<void> {
+    // await this.cleanupSmallAlbums();
     await this.startPolling();
   }
 
@@ -281,6 +282,55 @@ class ImageLabelerApp {
       const waitMs = Math.max(0, appEnv.pollIntervalMs - elapsedMs);
       this.logger.debug("Poll cycle finished", { elapsedMs, waitMs });
       await sleep(waitMs);
+    }
+  }
+
+  private async cleanupSmallAlbums(): Promise<void> {
+    const threshold = 10;
+
+    try {
+      this.logger.info("Cleaning up small albums", {
+        threshold,
+      });
+
+      const albums = await this.immich.listAlbums();
+      this.logger.info("Found albums", {
+        count: albums.length,
+      });
+
+      let deleted = 0;
+      let skipped = 0;
+
+      for (const album of albums) {
+        const name = (album.albumName ?? "").trim();
+        const count = album.assetCount ?? 0;
+
+        // marker 앨범은 삭제 금지
+        if (name === (appEnv.markerLabel ?? "").trim()) {
+          skipped++;
+          continue;
+        }
+
+        if (count > 0 && count < threshold) {
+          this.logger.info("Deleting small album", {
+            name,
+            count,
+          });
+          const ok = await this.immich.deleteAlbum(album.id);
+          if (ok) deleted++;
+        }
+      }
+
+      this.logger.info("Album cleanup finished", {
+        threshold,
+        total: albums.length,
+        deleted,
+        skipped,
+      });
+    } catch (error) {
+      this.logger.warn("Album cleanup failed", {
+        error: errorToString(error),
+      });
     }
   }
 }
