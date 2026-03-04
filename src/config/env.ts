@@ -33,8 +33,8 @@ function logLevelEnv(name: string, fallback: LogLevel): LogLevel {
 
 export type AppEnv = {
   originalsPath: string;
-  photoPrismUrl: string;
-  photoPrismToken: string;
+  immichUrl: string;
+  immichApiKey: string;
   markerLabel: string;
   concurrency: number;
   pollIntervalMs: number;
@@ -44,8 +44,8 @@ export type AppEnv = {
 
 export const appEnv: AppEnv = {
   originalsPath: requiredEnv("ORIGINALS_PATH"),
-  photoPrismUrl: requiredEnv("PHOTOPRISM_URL"),
-  photoPrismToken: requiredEnv("PHOTOPRISM_TOKEN"),
+  immichUrl: requiredEnv("IMMICH_URL"),
+  immichApiKey: requiredEnv("IMMICH_API_KEY"),
   markerLabel: process.env.MARKER_LABEL?.trim() || DEFAULT_MARKER_LABEL,
   concurrency: numberEnv("CONCURRENCY", DEFAULT_CONCURRENCY),
   pollIntervalMs: numberEnv("POLL_INTERVAL_MS", DEFAULT_POLL_INTERVAL_MS),
