@@ -7,7 +7,6 @@ import { extractPrompt } from "./utils/extractPrompt.js";
 import { errorToString, Logger } from "./utils/logger.js";
 import {
   parseModelPromptLabel,
-  parsePositivePrompt,
   parsePositivePromptLabels,
 } from "./utils/promptLabels.js";
 import { WorkerPool } from "./utils/workerPool.js";
@@ -121,6 +120,29 @@ class ImageLabelerApp {
     return value.replace(/(\.(?:png|webp|jpe?g))\.(?:png|webp|jpe?g)$/i, "$1");
   }
 
+  private toHostPath(immichOriginalPath: string): string {
+    const raw = (immichOriginalPath ?? "").trim();
+    if (!raw) return raw;
+
+    const immichPrefix = (appEnv.immichPathPrefix ?? "").trim();
+    const hostPrefix = (appEnv.originalsPath ?? "").trim();
+
+    if (!immichPrefix || !hostPrefix) return raw;
+
+    const normalized = raw.replace(/\\/g, "/");
+    const normImmichPrefix = immichPrefix
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "");
+    const normHostPrefix = hostPrefix.replace(/\\/g, "/").replace(/\/+$/, "");
+
+    if (normalized === normImmichPrefix) return normHostPrefix;
+
+    if (!normalized.startsWith(normImmichPrefix + "/")) return raw;
+
+    const rest = normalized.slice(normImmichPrefix.length);
+    return normHostPrefix + rest;
+  }
+
   private async processResolvedAsset(
     assetId: string,
     filePath: string,
@@ -160,7 +182,6 @@ class ImageLabelerApp {
     const modelAlbum = parseModelPromptLabel(prompt);
     if (modelAlbum) albumNames.push(modelAlbum);
 
-    // ✅ 처리 마커 앨범(필수): 이 앨범에 들어간 애들은 "처리됨"으로 간주하게 할 수도 있음
     const markerAlbumName = appEnv.markerLabel; // 예: "_labeled_v1"
     if (markerAlbumName?.trim()) albumNames.push(markerAlbumName);
 
@@ -204,7 +225,7 @@ class ImageLabelerApp {
         continue;
       }
 
-      const filePath = asset.originalPath;
+      const filePath = this.toHostPath(asset.originalPath);
       const filename = asset.originalFileName;
 
       if (!filePath || !WATCHED_IMAGE_FILE_RE.test(filePath)) {

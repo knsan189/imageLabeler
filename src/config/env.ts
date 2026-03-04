@@ -40,6 +40,7 @@ export type AppEnv = {
   pollIntervalMs: number;
   pollCount: number;
   logLevel: LogLevel;
+  immichPathPrefix: string;
 };
 
 export const appEnv: AppEnv = {
@@ -51,4 +52,5 @@ export const appEnv: AppEnv = {
   pollIntervalMs: numberEnv("POLL_INTERVAL_MS", DEFAULT_POLL_INTERVAL_MS),
   pollCount: numberEnv("POLL_COUNT", DEFAULT_POLL_COUNT),
   logLevel: logLevelEnv("LOG_LEVEL", "info"),
+  immichPathPrefix: requiredEnv("IMMICH_PATH_PREFIX"),
 };
