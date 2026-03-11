@@ -5,13 +5,32 @@ import { appEnv } from "./config/env.js";
 import { ImmichClient } from "./services/ImmichClient.js";
 import { extractPrompt } from "./utils/extractPrompt.js";
 import { errorToString, Logger } from "./utils/logger.js";
-import {
-  parseModelPromptLabel,
-  parsePositivePrompt,
-  parsePositivePromptLabels,
-} from "./utils/promptLabels.js";
 import { WorkerPool } from "./utils/workerPool.js";
 import { sleep } from "./utils/sleep.js";
+
+// const filterAlbumNames = [
+//   "masterpiece",
+//   "high quality",
+//   "highres",
+//   "best quality",
+//   "very aethetic",
+//   "absurdres",
+//   "nsfw",
+//   "high detail",
+//   "highly stylized",
+//   "blurry background",
+//   "8k uhd",
+//   "female orgasm",
+//   "hyper-realistic texture",
+//   "cinematic lighting",
+//   "sweats",
+//   "1girl",
+//   "beauty",
+//   "amazing quality",
+//   "pink blush",
+// ];
+
+// const filterAlbumNamesSet = new Set(filterAlbumNames);
 
 class ImageLabelerApp {
   private readonly logger = new Logger("imageLabeler", appEnv.logLevel);
@@ -29,8 +48,8 @@ class ImageLabelerApp {
   private readonly inFlightAssetIds = new Set<string>();
 
   async run(): Promise<void> {
-    // await this.cleanupSmallAlbums();
-    await this.startPolling();
+    await this.cleanupSmallAlbums();
+    // await this.startPolling();
   }
 
   private resolveExistingPhotoPath(filePath: string): string | null {
@@ -119,7 +138,10 @@ class ImageLabelerApp {
   }
 
   private stripDuplicateImageExtension(value: string): string {
-    return value.replace(/(\.(?:png|webp|jpe?g))\.(?:png|webp|jpe?g)$/i, "$1");
+    return value.replace(
+      /(\.(?:png|webp|jpe?g|gif))\.(?:png|webp|jpe?g|gif)$/i,
+      "$1",
+    );
   }
 
   private toHostPath(immichOriginalPath: string): string {
@@ -151,6 +173,7 @@ class ImageLabelerApp {
     filename: string,
   ): Promise<void> {
     const resolvedFilePath = this.resolveExistingPhotoPath(filePath);
+
     if (!resolvedFilePath) {
       this.logger.warn("Asset source file does not exist", {
         assetId,
@@ -167,72 +190,46 @@ class ImageLabelerApp {
       });
     }
 
+    const markerAlbumId = await this.getOrCreateMarkerAlbumId();
     const prompt = await extractPrompt(resolvedFilePath, {
       logger: this.logger,
     });
-
-    const markerAlbumName = appEnv.markerLabel;
 
     if (!prompt) {
       this.logger.warn("No prompt found", {
         assetId,
         filePath: resolvedFilePath,
       });
-
-      await this.immich.getOrCreateAlbumId(markerAlbumName);
-      return;
+    } else {
+      await this.immich.updateAssetDescription(assetId, prompt);
+      this.logger.info("Asset description updated", { assetId });
     }
 
-    const albumNames: string[] = [];
-    const positivePrompt = parsePositivePrompt(prompt);
-    albumNames.push(...parsePositivePromptLabels(positivePrompt));
-    const modelAlbum = parseModelPromptLabel(prompt);
-    if (modelAlbum) albumNames.push(modelAlbum);
+    await this.immich.addAssetsToAlbum(markerAlbumId, [assetId]);
+    this.logger.info("Asset processed", { filename, assetId });
+  }
 
-    albumNames.push(markerAlbumName);
+  private async getOrCreateMarkerAlbumId(): Promise<string> {
+    const markerAlbumName = appEnv.markerLabel;
+    const markerAlbumId = await this.immich.getOrCreateAlbumId(markerAlbumName);
 
-    const uniqueAlbumNames = Array.from(
-      new Set(albumNames.map((v) => v.trim()).filter(Boolean)),
-    );
-
-    if (!uniqueAlbumNames.length) {
-      this.logger.warn("No album names parsed from prompt", {
-        assetId,
-        filePath: resolvedFilePath,
-      });
-      return;
+    if (!markerAlbumId) {
+      throw new Error("Failed to get or create marker album");
     }
 
-    // 앨범이 없으면 생성 후 추가
-    let albumsApplied = 0;
-    for (const name of uniqueAlbumNames) {
-      const albumId = await this.immich.getOrCreateAlbumId(name);
-      if (!albumId) continue;
-      await this.immich.addAssetsToAlbum(albumId, [assetId]);
-      albumsApplied += 1;
-    }
-    this.logger.info("Albums applied", {
-      assetId,
-    });
-
-    await this.immich.updateAssetDescription(assetId, prompt);
-    this.logger.info("Asset description updated", { assetId });
-
-    this.logger.info("Asset processed", {
-      filename,
-      assetId,
-      albumsApplied,
-    });
+    return markerAlbumId;
   }
 
   private async runPollCycle(): Promise<void> {
     const assets = await this.immich.listAssetsNotInAnyAlbum(appEnv.pollCount);
-
     let queued = 0;
     let skipped = 0;
 
     for (const asset of assets) {
       if (this.inFlightAssetIds.has(asset.id)) {
+        this.logger.info("Skipping already in flight asset", {
+          assetId: asset.id,
+        });
         skipped += 1;
         continue;
       }
@@ -242,7 +239,7 @@ class ImageLabelerApp {
 
       if (!filePath || !WATCHED_IMAGE_FILE_RE.test(filePath)) {
         skipped += 1;
-        this.logger.debug("Skipping unsupported file in asset scan", {
+        this.logger.info("Skipping unsupported file in asset scan", {
           assetId: asset.id,
           filePath,
         });
@@ -297,7 +294,7 @@ class ImageLabelerApp {
   }
 
   private async cleanupSmallAlbums(): Promise<void> {
-    const threshold = 10;
+    const threshold = 300;
 
     try {
       this.logger.info("Cleaning up small albums", {
@@ -305,6 +302,7 @@ class ImageLabelerApp {
       });
 
       const albums = await this.immich.listAlbums();
+
       this.logger.info("Found albums", {
         count: albums.length,
       });
@@ -322,7 +320,7 @@ class ImageLabelerApp {
           continue;
         }
 
-        if (count > 0 && count < threshold) {
+        if (count < threshold) {
           this.logger.info("Deleting small album", {
             name,
             count,

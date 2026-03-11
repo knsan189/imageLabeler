@@ -28,6 +28,7 @@ export function cleanToken(token: string): string {
     .trim()
     .replace(/:\d+(\.\d+)?/g, "")
     .replaceAll(".", "")
+    .replaceAll("_", " ")
     .replace(/\(.*?:.*?\)/g, "")
     .replace(/[()[\]{}]/g, "")
     .replace(/\s+/g, " ")

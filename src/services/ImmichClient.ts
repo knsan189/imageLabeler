@@ -1,59 +1,10 @@
 import axios, { AxiosInstance } from "axios";
 import { errorToString, LoggerLike } from "../utils/logger.js";
-
-interface ImmichAsset {
-  id: string;
-  originalPath: string;
-  originalFileName: string;
-}
-
-interface AlbumResponse {
-  albumName: string;
-  albumThumbnailAssetId: string;
-  // albumUsers: AlbumUserResponseDto[];
-  assetCount: number;
-  // assets: AssetResponseDto[];
-  // contributorCounts: ContributorCountResponseDto[];
-  createdAt: string;
-  description: string;
-  endDate: string;
-  hasSharedLink: boolean;
-  id: string;
-  isActivityEnabled: boolean;
-  lastModifiedAssetTimestamp: string;
-  // order: AssetOrder;
-  // owner: UserResponseDto;
-  ownerId: string;
-  shared: boolean;
-  startDate: string;
-  updatedAt: string;
-}
-
-interface SearchAlbumResponse {
-  count: number;
-  items: AlbumResponse[];
-  total: number;
-  facets: [];
-}
-
-interface SearchResponse {
-  albums: SearchAlbumResponse;
-  assets?: SearchAssetsResponse;
-}
-
-interface SearchAssetsResponse {
-  count: number;
-  items: ImmichAsset[];
-  facets: [];
-  nextPage: string | null;
-  total: number;
-}
+import { ImmichAsset, AlbumResponse, SearchResponse } from "./types.js";
 
 export class ImmichClient {
   private readonly http: AxiosInstance;
   private readonly logger?: LoggerLike;
-
-  // albumName -> albumId
   private readonly albumIdCache = new Map<string, string>();
 
   constructor(baseUrl: string, apiKey: string, logger?: LoggerLike) {
@@ -81,6 +32,8 @@ export class ImmichClient {
         page: 1,
         size: limit,
         isNotInAlbum: true,
+        originalPath: "/external/AI/",
+        type: "IMAGE",
       });
       return res.data.assets?.items ?? [];
     } catch (error) {
@@ -137,7 +90,7 @@ export class ImmichClient {
     if (!id) return;
 
     try {
-      await this.http.put(`/assets/${id}`, {
+      return await this.http.put(`/assets/${id}`, {
         description,
       });
     } catch (error) {
