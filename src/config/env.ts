@@ -41,6 +41,7 @@ export type AppEnv = {
   pollCount: number;
   logLevel: LogLevel;
   immichPathPrefix: string;
+  immichWatchPath: string;
 };
 
 export const appEnv: AppEnv = {
@@ -53,4 +54,5 @@ export const appEnv: AppEnv = {
   pollCount: numberEnv("POLL_COUNT", DEFAULT_POLL_COUNT),
   logLevel: logLevelEnv("LOG_LEVEL", "info"),
   immichPathPrefix: requiredEnv("IMMICH_PATH_PREFIX"),
+  immichWatchPath: requiredEnv("IMMICH_WATCH_PATH"),
 };

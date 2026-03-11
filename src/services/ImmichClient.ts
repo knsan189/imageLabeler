@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from "axios";
 import { errorToString, LoggerLike } from "../utils/logger.js";
 import { AlbumResponse, ImmichAsset, SearchResponse } from "./types.js";
+import { appEnv } from "../config/env.js";
 
 export class ImmichClient {
   private readonly http: AxiosInstance;
@@ -9,6 +10,11 @@ export class ImmichClient {
   private readonly tagIdCache = new Map<string, string>();
 
   private readonly albumIdCache = new Map<string, string>();
+
+  private readonly pendingTagPromises = new Map<
+    string,
+    Promise<string | null>
+  >();
 
   constructor(baseUrl: string, apiKey: string, logger?: LoggerLike) {
     const trimmed = baseUrl.replace(/\/+$/, "");
@@ -34,8 +40,8 @@ export class ImmichClient {
       const res = await this.http.post<SearchResponse>("/search/metadata", {
         page: 1,
         size: limit,
-        tagIds: [],
-        originalPath: "/external/AI/",
+        tagIds: null,
+        originalPath: appEnv.immichWatchPath,
         type: "IMAGE",
       });
       return res.data.assets?.items ?? [];
@@ -55,7 +61,22 @@ export class ImmichClient {
     const cached = this.tagIdCache.get(name);
     if (cached) return cached;
 
-    try {
+    const pending = this.pendingTagPromises.get(name);
+    if (pending) return pending;
+
+    const task = this.getOrCreateTagIdInternal(name).finally(() => {
+      this.pendingTagPromises.delete(name);
+    });
+
+    this.pendingTagPromises.set(name, task);
+    return task;
+  }
+
+  private async getOrCreateTagIdInternal(name: string): Promise<string | null> {
+    const cached = this.tagIdCache.get(name);
+    if (cached) return cached;
+
+    const findExistingTagId = async (): Promise<string | null> => {
       const res =
         await this.http.get<Array<{ id: string; name: string }>>("/tags");
 
@@ -64,15 +85,16 @@ export class ImmichClient {
         if (n) this.tagIdCache.set(n, tag.id);
       }
 
-      const found = this.tagIdCache.get(name);
+      return this.tagIdCache.get(name) ?? null;
+    };
+
+    try {
+      const found = await findExistingTagId();
       if (found) return found;
 
-      const created = await this.http.post<{ id: string }>("/tags", {
-        name,
-        type: "CUSTOM",
-      });
+      const created = await this.http.post<{ id: string }>("/tags", { name });
+      const id = created.data?.id ?? null;
 
-      const id = created.data?.id;
       if (id) {
         this.tagIdCache.set(name, id);
         return id;
@@ -80,14 +102,17 @@ export class ImmichClient {
 
       return null;
     } catch (error) {
-      this.logger?.warn("Failed to get/create tag", {
-        tagName: name,
-        error: errorToString(error),
-      });
-      return null;
+      if (
+        axios.isAxiosError(error) &&
+        (error.response?.status === 400 || error.response?.status === 409)
+      ) {
+        const foundAfterRetry = await findExistingTagId();
+        if (foundAfterRetry) return foundAfterRetry;
+      }
+
+      throw error;
     }
   }
-
   async updateAssetDescription(
     assetId: string,
     description: string,
@@ -107,23 +132,24 @@ export class ImmichClient {
     }
   }
 
-  public async addAssetsToTag(
-    tagId: string,
-    assetIds: string[],
+  public async addTagsToAsset(
+    assetId: string,
+    tagIds: string[],
   ): Promise<void> {
-    const id = tagId.trim();
-    const ids = assetIds.map((v) => v.trim()).filter(Boolean);
+    const id = assetId.trim();
+    const ids = tagIds.map((v) => v.trim()).filter(Boolean);
     if (!id || ids.length === 0) return;
 
     try {
-      await this.http.put(`/tags/${id}/assets`, {
-        assetIds: ids,
+      await this.http.put(`/tags/assets`, {
+        tagIds: ids,
+        assetIds: [id],
       });
     } catch (error) {
       this.logger?.warn("Failed to add assets to tag", {
         tagId: id,
         assetCount: ids.length,
-        error: errorToString(error),
+        error: error instanceof Error ? error.message : errorToString(error),
       });
     }
   }

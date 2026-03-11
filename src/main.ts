@@ -171,7 +171,6 @@ class ImageLabelerApp {
     }
 
     const markerTagId = await this.getOrCreateMarkerTagId();
-
     const prompt = await extractPrompt(resolvedFilePath, {
       logger: this.logger,
     });
@@ -181,29 +180,40 @@ class ImageLabelerApp {
         assetId,
         filePath: resolvedFilePath,
       });
+      await this.immich.addTagsToAsset(assetId, [markerTagId]);
     } else {
       await this.immich.updateAssetDescription(assetId, prompt);
-      this.logger.info("Asset description updated", { assetId });
 
+      this.logger.info("Asset description updated", { assetId });
       const positivePrompt = parsePositivePrompt(prompt);
       const positivePromptLabels = parsePositivePromptLabels(positivePrompt);
+      const tags: Array<string | null> = [];
+      const tagBatchSize = 4;
 
-      for (const label of positivePromptLabels) {
-        await this.addAssetToTag(label, assetId);
+      for (let i = 0; i < positivePromptLabels.length; i += tagBatchSize) {
+        const labelBatch = positivePromptLabels.slice(i, i + tagBatchSize);
+        const batchTags = await Promise.all(
+          labelBatch.map((label) => this.immich.getOrCreateTagId(label)),
+        );
+        tags.push(...batchTags);
       }
+
+      await this.immich.addTagsToAsset(
+        assetId,
+        tags.filter(Boolean) as string[],
+      );
     }
 
-    await this.immich.addAssetsToTag(markerTagId, [assetId]);
     this.logger.info("Asset processed", { filename, assetId });
   }
 
-  private async addAssetToTag(tagName: string, assetId: string): Promise<void> {
-    const tagId = await this.immich.getOrCreateTagId(tagName);
-    if (!tagId) {
-      throw new Error("Failed to get or create tag");
-    }
-    await this.immich.addAssetsToTag(tagId, [assetId]);
-  }
+  // private async addAssetToTag(tagName: string, assetId: string): Promise<void> {
+  //   const tagId = await this.immich.getOrCreateTagId(tagName);
+  //   if (!tagId) {
+  //     throw new Error("Failed to get or create tag");
+  //   }
+  //   await this.immich.addAssetsToTag(tagId, [assetId]);
+  // }
 
   private async getOrCreateMarkerTagId(): Promise<string> {
     const markerTagName = appEnv.markerLabel;
@@ -290,7 +300,7 @@ class ImageLabelerApp {
   }
 
   private async cleanupSmallAlbums(): Promise<void> {
-    const threshold = 300;
+    const threshold = 20000;
 
     try {
       this.logger.info("Cleaning up small albums", {
