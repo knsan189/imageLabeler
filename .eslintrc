@@ -5,8 +5,8 @@
   "parserOptions": {
     "ecmaVersion": "latest",
     "sourceType": "module",
-    "project": "./tsconfig.json"
+    "project": "./tsconfig.json",
   },
   "ignorePatterns": ["node_modules/", "*.js", "*.cjs"],
-  "rules": {}
+  "rules": {},
 }

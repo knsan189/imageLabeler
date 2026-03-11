@@ -7,30 +7,10 @@ import { extractPrompt } from "./utils/extractPrompt.js";
 import { errorToString, Logger } from "./utils/logger.js";
 import { WorkerPool } from "./utils/workerPool.js";
 import { sleep } from "./utils/sleep.js";
-
-// const filterAlbumNames = [
-//   "masterpiece",
-//   "high quality",
-//   "highres",
-//   "best quality",
-//   "very aethetic",
-//   "absurdres",
-//   "nsfw",
-//   "high detail",
-//   "highly stylized",
-//   "blurry background",
-//   "8k uhd",
-//   "female orgasm",
-//   "hyper-realistic texture",
-//   "cinematic lighting",
-//   "sweats",
-//   "1girl",
-//   "beauty",
-//   "amazing quality",
-//   "pink blush",
-// ];
-
-// const filterAlbumNamesSet = new Set(filterAlbumNames);
+import {
+  parsePositivePrompt,
+  parsePositivePromptLabels,
+} from "./utils/promptLabels.js";
 
 class ImageLabelerApp {
   private readonly logger = new Logger("imageLabeler", appEnv.logLevel);
@@ -48,8 +28,8 @@ class ImageLabelerApp {
   private readonly inFlightAssetIds = new Set<string>();
 
   async run(): Promise<void> {
-    await this.cleanupSmallAlbums();
-    // await this.startPolling();
+    // await this.cleanupSmallAlbums();
+    await this.startPolling();
   }
 
   private resolveExistingPhotoPath(filePath: string): string | null {
@@ -190,7 +170,8 @@ class ImageLabelerApp {
       });
     }
 
-    const markerAlbumId = await this.getOrCreateMarkerAlbumId();
+    const markerTagId = await this.getOrCreateMarkerTagId();
+
     const prompt = await extractPrompt(resolvedFilePath, {
       logger: this.logger,
     });
@@ -203,25 +184,40 @@ class ImageLabelerApp {
     } else {
       await this.immich.updateAssetDescription(assetId, prompt);
       this.logger.info("Asset description updated", { assetId });
+
+      const positivePrompt = parsePositivePrompt(prompt);
+      const positivePromptLabels = parsePositivePromptLabels(positivePrompt);
+
+      for (const label of positivePromptLabels) {
+        await this.addAssetToTag(label, assetId);
+      }
     }
 
-    await this.immich.addAssetsToAlbum(markerAlbumId, [assetId]);
+    await this.immich.addAssetsToTag(markerTagId, [assetId]);
     this.logger.info("Asset processed", { filename, assetId });
   }
 
-  private async getOrCreateMarkerAlbumId(): Promise<string> {
-    const markerAlbumName = appEnv.markerLabel;
-    const markerAlbumId = await this.immich.getOrCreateAlbumId(markerAlbumName);
+  private async addAssetToTag(tagName: string, assetId: string): Promise<void> {
+    const tagId = await this.immich.getOrCreateTagId(tagName);
+    if (!tagId) {
+      throw new Error("Failed to get or create tag");
+    }
+    await this.immich.addAssetsToTag(tagId, [assetId]);
+  }
 
-    if (!markerAlbumId) {
+  private async getOrCreateMarkerTagId(): Promise<string> {
+    const markerTagName = appEnv.markerLabel;
+    const markerTagId = await this.immich.getOrCreateTagId(markerTagName);
+
+    if (!markerTagId) {
       throw new Error("Failed to get or create marker album");
     }
 
-    return markerAlbumId;
+    return markerTagId;
   }
 
   private async runPollCycle(): Promise<void> {
-    const assets = await this.immich.listAssetsNotInAnyAlbum(appEnv.pollCount);
+    const assets = await this.immich.getListOfAssetsHasNoTags(appEnv.pollCount);
     let queued = 0;
     let skipped = 0;
 

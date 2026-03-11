@@ -1,10 +1,13 @@
 import axios, { AxiosInstance } from "axios";
 import { errorToString, LoggerLike } from "../utils/logger.js";
-import { ImmichAsset, AlbumResponse, SearchResponse } from "./types.js";
+import { AlbumResponse, ImmichAsset, SearchResponse } from "./types.js";
 
 export class ImmichClient {
   private readonly http: AxiosInstance;
   private readonly logger?: LoggerLike;
+
+  private readonly tagIdCache = new Map<string, string>();
+
   private readonly albumIdCache = new Map<string, string>();
 
   constructor(baseUrl: string, apiKey: string, logger?: LoggerLike) {
@@ -22,7 +25,7 @@ export class ImmichClient {
     this.logger = logger;
   }
 
-  public async listAssetsNotInAnyAlbum(
+  public async getListOfAssetsHasNoTags(
     count: number = 300,
   ): Promise<ImmichAsset[]> {
     const limit = Math.max(1, Math.floor(count));
@@ -31,7 +34,7 @@ export class ImmichClient {
       const res = await this.http.post<SearchResponse>("/search/metadata", {
         page: 1,
         size: limit,
-        isNotInAlbum: true,
+        tagIds: [],
         originalPath: "/external/AI/",
         type: "IMAGE",
       });
@@ -45,37 +48,40 @@ export class ImmichClient {
     }
   }
 
-  public async getOrCreateAlbumId(albumName: string): Promise<string | null> {
-    const name = albumName.trim();
+  public async getOrCreateTagId(tagName: string): Promise<string | null> {
+    const name = tagName.trim();
     if (!name) return null;
 
-    const cached = this.albumIdCache.get(name);
+    const cached = this.tagIdCache.get(name);
     if (cached) return cached;
 
     try {
-      const res = await this.http.get<AlbumResponse[]>("/albums");
-      for (const album of res.data ?? []) {
-        const n = (album.albumName ?? "").trim();
-        if (n) this.albumIdCache.set(n, album.id);
+      const res =
+        await this.http.get<Array<{ id: string; name: string }>>("/tags");
+
+      for (const tag of res.data ?? []) {
+        const n = (tag.name ?? "").trim();
+        if (n) this.tagIdCache.set(n, tag.id);
       }
 
-      const found = this.albumIdCache.get(name);
+      const found = this.tagIdCache.get(name);
       if (found) return found;
 
-      const created = await this.http.post<AlbumResponse>("/albums", {
-        albumName: name,
+      const created = await this.http.post<{ id: string }>("/tags", {
+        name,
+        type: "CUSTOM",
       });
 
       const id = created.data?.id;
       if (id) {
-        this.albumIdCache.set(name, id);
+        this.tagIdCache.set(name, id);
         return id;
       }
 
       return null;
     } catch (error) {
-      this.logger?.warn("Failed to get/create album", {
-        albumName: name,
+      this.logger?.warn("Failed to get/create tag", {
+        tagName: name,
         error: errorToString(error),
       });
       return null;
@@ -90,7 +96,7 @@ export class ImmichClient {
     if (!id) return;
 
     try {
-      return await this.http.put(`/assets/${id}`, {
+      await this.http.put(`/assets/${id}`, {
         description,
       });
     } catch (error) {
@@ -101,19 +107,21 @@ export class ImmichClient {
     }
   }
 
-  public async addAssetsToAlbum(
-    albumId: string,
+  public async addAssetsToTag(
+    tagId: string,
     assetIds: string[],
   ): Promise<void> {
-    const id = albumId.trim();
+    const id = tagId.trim();
     const ids = assetIds.map((v) => v.trim()).filter(Boolean);
     if (!id || ids.length === 0) return;
 
     try {
-      await this.http.put(`/albums/${id}/assets`, { ids });
+      await this.http.put(`/tags/${id}/assets`, {
+        assetIds: ids,
+      });
     } catch (error) {
-      this.logger?.warn("Failed to add assets to album", {
-        albumId: id,
+      this.logger?.warn("Failed to add assets to tag", {
+        tagId: id,
         assetCount: ids.length,
         error: errorToString(error),
       });
